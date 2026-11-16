@@ -25,5 +25,6 @@ jobs:
         run: npm test
       - name: Seed smoke test (schema + seed run cleanly)
         run: npm run db:reset
-      - name: Production build
+      - name: Production build (once the app exists)
+        if: ${{ hashFiles('src/app/**') != '' }}
         run: npm run build
