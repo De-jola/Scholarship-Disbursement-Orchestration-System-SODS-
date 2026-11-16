@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "stage/**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "file:./ci.db"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Seed smoke test (schema + seed run cleanly)
+        run: npm run db:reset
+      - name: Production build (once the app exists)
+        if: ${{ hashFiles('src/app/**') != '' }}
+        run: npm run build
