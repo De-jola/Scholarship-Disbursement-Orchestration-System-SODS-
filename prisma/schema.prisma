@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  FINANCE_APPROVER
+}
+
+enum UniversityStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CalendarSourceType {
+  MANUAL_ENTRY
+  CSV_UPLOAD
+  SIMULATED_PORTAL
+}
+
+enum CalendarReviewStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum CalendarEventType {
+  RESUMPTION
+  REGISTRATION
+  LECTURES
+  EXAMINATION
+  BREAK
+  SESSION_END
+}
+
+enum ScholarshipStatus {
+  ACTIVE
+  SUSPENDED
+  COMPLETED
+}
+
+enum VerificationStatus {
+  NOT_STARTED
+  AWAITING_RESULT
+  DOCUMENT_SUBMITTED
+  EXTRACTED
+  REVIEW_PENDING
+  VERIFIED
+  EXCEPTION
+  REJECTED
+}
+
+enum ExceptionType {
+  DUPLICATE_SCHOLARSHIP
+  NAME_MISMATCH
+  LOW_CONFIDENCE
+  UNREADABLE_DOCUMENT
+  OTHER
+}
+
+enum DocumentType {
+  STATEMENT_OF_RESULT
+  TRANSCRIPT
+  COURSE_REGISTRATION_FORM
+}
+
+enum SubmissionStatus {
+  UPLOADED
+  PROCESSING
+  EXTRACTED
+  REVIEW_PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FieldStatus {
+  PENDING
+  CONFIRMED
+  CORRECTED
+  REJECTED
+}
+
+enum VerificationEventType {
+  DOCUMENT_UPLOADED
+  AI_EXTRACTION_COMPLETED
+  FIELD_CORRECTED
+  APPROVED
+  REJECTED
+  EXCEPTION_RAISED
+  DUPLICATE_FLAGGED
+}
+
+enum ActorType {
+  SYSTEM
+  ADMIN
+  FINANCE_APPROVER
+}
+
+enum BatchStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  DISBURSEMENT_SIMULATED
+  FAILED
+  CANCELLED
+}
+
+enum BatchItemStatus {
+  PENDING
+  APPROVED
+  DISBURSEMENT_SIMULATED
+  FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      Role
+  createdAt DateTime @default(now())
+}
+
+model University {
+  id            String             @id @default(cuid())
+  name          String
+  shortName     String             @unique
+  state         String
+  websiteUrl    String
+  status        UniversityStatus   @default(ACTIVE)
+  createdAt     DateTime           @default(now())
+  calendars     AcademicCalendar[]
+  beneficiaries Beneficiary[]
+  batches       PaymentBatch[]
+}
+
+model AcademicCalendar {
+  id               String               @id @default(cuid())
+  universityId     String
+  university       University           @relation(fields: [universityId], references: [id])
+  session          String
+  sourceType       CalendarSourceType
+  sourceName       String
+  reviewStatus     CalendarReviewStatus @default(DRAFT)
+  reviewNotes      String?
+  approvedByUserId String?
+  approvedByName   String?
+  approvedAt       DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  events           CalendarEvent[]
+
+  @@index([universityId, session])
+}
+
+model CalendarEvent {
+  id                 String            @id @default(cuid())
+  academicCalendarId String
+  calendar           AcademicCalendar  @relation(fields: [academicCalendarId], references: [id], onDelete: Cascade)
+  eventType          CalendarEventType
+  title              String
+  startDate          DateTime
+  endDate            DateTime
+  confidence         Float
+  sourceText         String
+  createdAt          DateTime          @default(now())
+}
+
+model Beneficiary {
+  id                          String              @id @default(cuid())
+  applicationRef              String              @unique
+  fullName                    String
+  email                       String
+  phone                       String
+  universityId                String
+  university                  University          @relation(fields: [universityId], references: [id])
+  department                  String
+  level                       String
+  academicSession             String
+  matricNumber                String
+  scholarshipStatus           ScholarshipStatus   @default(ACTIVE)
+  otherScholarshipDeclaration Boolean             @default(false)
+  verificationStatus          VerificationStatus  @default(NOT_STARTED)
+  exceptionType               ExceptionType?
+  exceptionNote               String?
+  exceptionResolvedAt         DateTime?
+  verifiedAt                  DateTime?
+  bankAccountToken            String?
+  bankAccountMasked           String
+  lastActivityAt              DateTime            @default(now())
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+  submissions                 ResultSubmission[]
+  events                      VerificationEvent[]
+  batchItems                  PaymentBatchItem[]
+
+  @@index([universityId])
+  @@index([verificationStatus])
+}
+
+model ResultSubmission {
+  id                   String           @id @default(cuid())
+  beneficiaryId        String
+  beneficiary          Beneficiary      @relation(fields: [beneficiaryId], references: [id], onDelete: Cascade)
+  documentName         String
+  documentType         DocumentType
+  fileUrl              String
+  status               SubmissionStatus @default(UPLOADED)
+  extractionConfidence Float?
+  extractedJson        String?
+  reviewerId           String?
+  reviewedAt           DateTime?
+  reviewerNotes        String?
+  createdAt            DateTime         @default(now())
+  fields               ExtractedField[]
+}
+
+model ExtractedField {
+  id                     String           @id @default(cuid())
+  resultSubmissionId     String
+  submission             ResultSubmission @relation(fields: [resultSubmissionId], references: [id], onDelete: Cascade)
+  fieldName              String
+  extractedValue         String
+  confidence             Float
+  needsReview            Boolean          @default(false)
+  warning                String?
+  reviewerCorrectedValue String?
+  status                 FieldStatus      @default(PENDING)
+}
+
+model VerificationEvent {
+  id            String                @id @default(cuid())
+  beneficiaryId String
+  beneficiary   Beneficiary           @relation(fields: [beneficiaryId], references: [id], onDelete: Cascade)
+  eventType     VerificationEventType
+  actorType     ActorType
+  actorName     String
+  details       String
+  createdAt     DateTime              @default(now())
+}
+
+model FundAllocation {
+  id              String         @id @default(cuid())
+  name            String
+  totalAmount     Float
+  committedAmount Float          @default(0)
+  disbursedAmount Float          @default(0)
+  availableAmount Float
+  session         String
+  createdAt       DateTime       @default(now())
+  batches         PaymentBatch[]
+}
+
+model PaymentBatch {
+  id               String             @id @default(cuid())
+  universityId     String
+  university       University         @relation(fields: [universityId], references: [id])
+  academicSession  String
+  batchName        String
+  scheduledDate    DateTime
+  status           BatchStatus        @default(DRAFT)
+  totalAmount      Float              @default(0)
+  currency         String             @default("NGN")
+  fundAllocationId String
+  fundAllocation   FundAllocation     @relation(fields: [fundAllocationId], references: [id])
+  createdById      String
+  approvedById     String?
+  approvedByName   String?
+  approvedAt       DateTime?
+  paymentReference String?
+  createdAt        DateTime           @default(now())
+  items            PaymentBatchItem[]
+}
+
+model PaymentBatchItem {
+  id             String          @id @default(cuid())
+  paymentBatchId String
+  batch          PaymentBatch    @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
+  beneficiaryId  String
+  beneficiary    Beneficiary     @relation(fields: [beneficiaryId], references: [id])
+  amount         Float
+  status         BatchItemStatus @default(PENDING)
+  failureReason  String?
+  retryCount     Int             @default(0)
+  manualReview   Boolean         @default(false)
+  paidAt         DateTime?
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  actorName      String
+  actorRole      String
+  action         String
+  entityType     String
+  entityId       String?
+  details        String
+  universityId   String?
+  beneficiaryId  String?
+  paymentBatchId String?
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
