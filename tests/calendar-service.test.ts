@@ -85,3 +85,94 @@ describe("calendar service", () => {
     expect(approved[0].id).toBe(revised.id);
   });
 });
+
+describe("reviewer corrections to extracted calendar events", () => {
+  async function pendingPdfCalendar(short: string) {
+    const { createCalendarFromUpload } = await import("@/lib/calendar-service");
+    const { simulatePdfExtraction } = await import("@/lib/calendar-parser");
+    const u = await uni(short);
+    return createCalendarFromUpload(admin, {
+      universityId: u.id, session: "2026/2027", sourceType: "SIMULATED_PORTAL", sourceName: `${short.toLowerCase()}-2026-27.pdf`,
+      events: simulatePdfExtraction("2026/2027"),
+    });
+  }
+  const eventOf = (calendarId: string, type: string) => prisma.calendarEvent.findFirstOrThrow({ where: { academicCalendarId: calendarId, eventType: type as never } });
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+
+  it("corrects dates and title in place, marks the event human-corrected and fully confident", async () => {
+    const { correctCalendarEvent } = await import("@/lib/calendar-service");
+    const cal = await pendingPdfCalendar("UNN");
+    const ev = await eventOf(cal.id, "REGISTRATION");
+    await correctCalendarEvent(admin, ev.id, { title: "Course registration (corrected)", eventType: "REGISTRATION", startDate: new Date("2026-11-09T09:00:00Z"), endDate: new Date("2026-11-27T09:00:00Z") });
+    const after = await prisma.calendarEvent.findUniqueOrThrow({ where: { id: ev.id } });
+    expect(day(after.startDate)).toBe("2026-11-09");
+    expect(day(after.endDate)).toBe("2026-11-27");
+    expect(after.title).toBe("Course registration (corrected)");
+    expect(after.confidence).toBe(1);
+    expect(after.correctedByName).toBe("Adaeze Okonkwo");
+    expect(after.correctedAt).not.toBeNull();
+  });
+
+  it("keeps the original AI extraction for audit, even after several corrections", async () => {
+    const { correctCalendarEvent } = await import("@/lib/calendar-service");
+    const cal = await pendingPdfCalendar("BUK");
+    const ev = await eventOf(cal.id, "LECTURES");
+    const originalStart = day(ev.startDate);
+    await correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "LECTURES", startDate: new Date("2026-11-16T09:00:00Z"), endDate: new Date("2027-03-12T09:00:00Z") });
+    await correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "LECTURES", startDate: new Date("2026-11-17T09:00:00Z"), endDate: new Date("2027-03-12T09:00:00Z") });
+    const orig = JSON.parse((await prisma.calendarEvent.findUniqueOrThrow({ where: { id: ev.id } })).originalValue!);
+    expect(orig.startDate.slice(0, 10)).toBe(originalStart);
+    expect(orig.confidence).toBe(ev.confidence);
+    expect(orig.sourceText).toBe(ev.sourceText);
+  });
+
+  it("writes an audit entry showing the before and after values", async () => {
+    const { correctCalendarEvent } = await import("@/lib/calendar-service");
+    const cal = await pendingPdfCalendar("UNILAG");
+    const ev = await eventOf(cal.id, "EXAMINATION");
+    await correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "EXAMINATION", startDate: new Date("2027-03-22T09:00:00Z"), endDate: new Date("2027-04-16T09:00:00Z") });
+    const log = await prisma.auditLog.findFirstOrThrow({ where: { action: "CALENDAR_EVENT_CORRECTED", entityId: cal.id } });
+    expect(log.details).toContain("2027-03-22");
+    expect(log.details).toContain(day(ev.startDate));
+  });
+
+  it("rejects invalid corrections: end before start, bad type, and no-op edits", async () => {
+    const { correctCalendarEvent } = await import("@/lib/calendar-service");
+    const cal = await pendingPdfCalendar("RSU");
+    const ev = await eventOf(cal.id, "RESUMPTION");
+    await expect(correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "RESUMPTION", startDate: new Date("2026-11-10T09:00:00Z"), endDate: new Date("2026-11-01T09:00:00Z") })).rejects.toThrow(/end date/i);
+    await expect(correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "NOPE" as never, startDate: ev.startDate, endDate: ev.endDate })).rejects.toThrow(/event type/i);
+    await expect(correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "RESUMPTION", startDate: ev.startDate, endDate: ev.endDate })).rejects.toThrow(/no changes/i);
+    await expect(correctCalendarEvent(admin, ev.id, { title: "  ", eventType: "RESUMPTION", startDate: ev.startDate, endDate: ev.endDate })).rejects.toThrow(/title/i);
+  });
+
+  it("locks corrections once the calendar is approved", async () => {
+    const { correctCalendarEvent, approveCalendar, removeCalendarEvent } = await import("@/lib/calendar-service");
+    const cal = await pendingPdfCalendar("FUTMINNA");
+    const ev = await eventOf(cal.id, "REGISTRATION");
+    await approveCalendar(admin, cal.id);
+    await expect(correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "REGISTRATION", startDate: new Date("2026-11-10T09:00:00Z"), endDate: new Date("2026-11-20T09:00:00Z") })).rejects.toThrow(/approved|locked/i);
+    await expect(removeCalendarEvent(admin, ev.id)).rejects.toThrow(/approved|locked/i);
+  });
+
+  it("approval uses the corrected dates, so the payment window follows the human correction", async () => {
+    const { correctCalendarEvent, approveCalendar } = await import("@/lib/calendar-service");
+    const { paymentWindow } = await import("@/lib/rules");
+    const cal = await pendingPdfCalendar("DELSU");
+    const ev = await eventOf(cal.id, "REGISTRATION");
+    await correctCalendarEvent(admin, ev.id, { title: ev.title, eventType: "REGISTRATION", startDate: new Date("2026-12-01T09:00:00Z"), endDate: new Date("2026-12-18T09:00:00Z") });
+    await approveCalendar(admin, cal.id);
+    const approved = await prisma.academicCalendar.findUniqueOrThrow({ where: { id: cal.id }, include: { events: true } });
+    expect(day(paymentWindow(approved)!.opensAt)).toBe("2026-11-17");
+  });
+
+  it("removes a wrongly extracted event, audits it, and blocks approval if registration is gone", async () => {
+    const { removeCalendarEvent, approveCalendar } = await import("@/lib/calendar-service");
+    const cal = await pendingPdfCalendar("UNIJOS");
+    const ev = await eventOf(cal.id, "REGISTRATION");
+    await removeCalendarEvent(admin, ev.id);
+    expect(await prisma.calendarEvent.count({ where: { id: ev.id } })).toBe(0);
+    expect(await prisma.auditLog.count({ where: { action: "CALENDAR_EVENT_REMOVED", entityId: cal.id } })).toBe(1);
+    await expect(approveCalendar(admin, cal.id)).rejects.toThrow(/registration/i);
+  });
+});

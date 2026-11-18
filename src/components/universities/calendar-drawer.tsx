@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarX2, Check, Send, X } from "lucide-react";
+import { CalendarX2, Check, Pencil, Send, Trash2, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { useAction } from "@/components/ui/use-action";
-import { approveCalendarAction, rejectCalendarAction, submitCalendarAction } from "@/app/actions/calendars";
+import { approveCalendarAction, rejectCalendarAction, removeCalendarEventAction, submitCalendarAction } from "@/app/actions/calendars";
+import { EventEditModal } from "@/components/universities/event-edit-modal";
 import { formatDate, formatDateTime, formatPercent, humanize } from "@/lib/format";
-import type { UniversityRow } from "@/lib/universities";
+import type { CalendarView, UniversityRow } from "@/lib/universities";
 
 const SOURCE: Record<string, string> = {
   MANUAL_ENTRY: "Manual entry",
@@ -36,6 +37,8 @@ export function CalendarDrawer({ open, university, canManage, onClose }: {
   const { run, pending } = useAction();
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [editing, setEditing] = useState<CalendarView["events"][number] | null>(null);
+  const [removing, setRemoving] = useState<CalendarView["events"][number] | null>(null);
   if (!university) return null;
 
   return (
@@ -64,23 +67,31 @@ export function CalendarDrawer({ open, university, canManage, onClose }: {
                 <div className="mt-3 overflow-x-auto rounded-md border border-slate-200">
                   <table className="w-full">
                     <caption className="sr-only">Extracted calendar events for session {c.session}</caption>
-                    <thead><tr><th scope="col">Event</th><th scope="col">Dates</th><th scope="col">Confidence</th><th scope="col">Source text</th></tr></thead>
+                    <thead><tr><th scope="col">Event</th><th scope="col">Dates</th><th scope="col">Confidence</th><th scope="col">Source text</th>{canManage && reviewable && <th scope="col"><span className="sr-only">Correct or remove</span></th>}</tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {c.events.length === 0 ? (
-                        <tr><td colSpan={4} className="text-center text-slate-500">No events extracted yet.</td></tr>
+                        <tr><td colSpan={5} className="text-center text-slate-500">No events extracted yet.</td></tr>
                       ) : c.events.map((e) => (
                         <tr key={e.id} className={e.confidence < 0.8 ? "bg-amber-50/60" : undefined}>
-                          <td><p className="font-medium">{e.title}</p><Badge tone="navy">{humanize(e.eventType)}</Badge></td>
-                          <td className="whitespace-nowrap text-xs">{formatDate(e.startDate)} – {formatDate(e.endDate)}</td>
-                          <td><ConfidenceBar value={e.confidence} /></td>
+                          <td><p className="font-medium">{e.title}</p><Badge tone="navy">{humanize(e.eventType)}</Badge>{e.correctedByName && <Badge tone="success" className="ml-1">Corrected by reviewer</Badge>}</td>
+                          <td className="whitespace-nowrap text-xs">{formatDate(e.startDate)} – {formatDate(e.endDate)}{e.original && <span className="block text-slate-500">AI extracted: {formatDate(e.original.startDate)} – {formatDate(e.original.endDate)}</span>}</td>
+                          <td>{e.correctedByName ? <span className="text-xs font-medium text-brand-dark">Human-verified</span> : <ConfidenceBar value={e.confidence} />}</td>
                           <td className="text-xs text-slate-600">{e.sourceText}</td>
+                          {canManage && reviewable && (
+                            <td>
+                              <div className="flex justify-end gap-1">
+                                <Button size="sm" variant="secondary" onClick={() => setEditing(e)} aria-label={`Correct ${e.title}`}><Pencil className="h-3.5 w-3.5" aria-hidden />Correct</Button>
+                                <Button size="sm" variant="ghost" onClick={() => setRemoving(e)} aria-label={`Remove ${e.title}`}><Trash2 className="h-3.5 w-3.5" aria-hidden /></Button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
                 {c.events.some((e) => e.confidence < 0.8) && (
-                  <p className="mt-2 text-xs text-amber-800">Highlighted rows have confidence below 80% and need careful checking against the source.</p>
+                  <p className="mt-2 text-xs text-amber-800">Highlighted rows have confidence below 80%. Check them against the source and use Correct to fix any wrong dates; there is no need to reject and re-upload the calendar.</p>
                 )}
 
                 {canManage && reviewable && (
@@ -117,6 +128,19 @@ export function CalendarDrawer({ open, university, canManage, onClose }: {
           })}
         </div>
       )}
+      <EventEditModal key={editing?.id ?? "none"} event={editing} onClose={() => setEditing(null)} />
+      <Modal
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        title="Remove extracted event"
+        description={removing ? `Remove "${removing.title}" from this calendar? Use this only for events the extraction invented or duplicated.` : undefined}
+        footer={<>
+          <Button variant="secondary" onClick={() => setRemoving(null)}>Cancel</Button>
+          <Button variant="danger" disabled={pending} onClick={() => removing && run(() => removeCalendarEventAction(removing.id), (r) => r.ok && setRemoving(null))}>Remove event</Button>
+        </>}
+      >
+        <p className="text-sm text-slate-600">The removal is recorded in the audit log. If the removed event was the registration window, the calendar cannot be approved until one is added back.</p>
+      </Modal>
     </Modal>
   );
 }

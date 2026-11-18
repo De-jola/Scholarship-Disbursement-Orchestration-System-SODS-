@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { validateForApproval, type EventType, type ParsedEvent, type SourceType } from "@/lib/calendar-parser";
+import { EVENT_TYPES, validateForApproval, type EventType, type ParsedEvent, type SourceType } from "@/lib/calendar-parser";
 import type { Session } from "@/lib/session";
 
 type Actor = Pick<Session, "userId" | "name" | "role">;
@@ -98,4 +98,57 @@ export async function rejectCalendar(actor: Actor, calendarId: string, reason: s
   await logAudit(actor, "CALENDAR_REJECTED", "AcademicCalendar",
     `Rejected ${cal.session} calendar for ${cal.university.name}: ${reason.trim()}`,
     { entityId: cal.id, universityId: cal.universityId });
+}
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+async function loadEditableEvent(eventId: string) {
+  const ev = await db.calendarEvent.findUniqueOrThrow({ where: { id: eventId }, include: { calendar: { include: { university: true } } } });
+  const status = ev.calendar.reviewStatus;
+  if (status === "APPROVED") throw new Error("This calendar is approved and locked. Upload a revised calendar for review to change its dates.");
+  if (status === "REJECTED") throw new Error("A rejected calendar cannot be edited. Upload a new calendar instead.");
+  return ev;
+}
+
+/** Reviewer corrects an AI-extracted event in place. The first extraction is preserved for audit. */
+export async function correctCalendarEvent(
+  actor: Actor,
+  eventId: string,
+  input: { title: string; eventType: EventType; startDate: Date; endDate: Date },
+) {
+  const ev = await loadEditableEvent(eventId);
+  const title = input.title.trim();
+  if (!title) throw new Error("Enter an event title.");
+  if (!(EVENT_TYPES as readonly string[]).includes(input.eventType)) throw new Error("Select a valid event type.");
+  if (Number.isNaN(input.startDate.getTime()) || Number.isNaN(input.endDate.getTime())) throw new Error("Enter valid start and end dates.");
+  if (input.endDate < input.startDate) throw new Error("The end date cannot be before the start date.");
+  const unchanged = title === ev.title && input.eventType === ev.eventType
+    && input.startDate.getTime() === ev.startDate.getTime() && input.endDate.getTime() === ev.endDate.getTime();
+  if (unchanged) throw new Error("No changes to save. Edit a date, title or type first.");
+
+  const originalValue = ev.originalValue ?? JSON.stringify({
+    eventType: ev.eventType, title: ev.title, startDate: ev.startDate.toISOString(), endDate: ev.endDate.toISOString(),
+    confidence: ev.confidence, sourceText: ev.sourceText,
+  });
+  await db.calendarEvent.update({
+    where: { id: eventId },
+    data: {
+      title, eventType: input.eventType, startDate: input.startDate, endDate: input.endDate,
+      confidence: 1, correctedByName: actor.name, correctedAt: new Date(), originalValue,
+    },
+  });
+  const cal = ev.calendar;
+  const titleNote = title !== ev.title ? `; title "${ev.title}" → "${title}"` : "";
+  await logAudit(actor, "CALENDAR_EVENT_CORRECTED", "AcademicCalendar",
+    `Corrected "${title}" in the ${cal.session} calendar for ${cal.university.name}: ${iso(ev.startDate)} – ${iso(ev.endDate)} → ${iso(input.startDate)} – ${iso(input.endDate)}${titleNote}`,
+    { entityId: cal.id, universityId: cal.universityId });
+}
+
+/** Reviewer removes an event the extraction invented or duplicated. */
+export async function removeCalendarEvent(actor: Actor, eventId: string) {
+  const ev = await loadEditableEvent(eventId);
+  await db.calendarEvent.delete({ where: { id: eventId } });
+  await logAudit(actor, "CALENDAR_EVENT_REMOVED", "AcademicCalendar",
+    `Removed extracted event "${ev.title}" (${iso(ev.startDate)} – ${iso(ev.endDate)}) from the ${ev.calendar.session} calendar for ${ev.calendar.university.name}`,
+    { entityId: ev.calendar.id, universityId: ev.calendar.universityId });
 }

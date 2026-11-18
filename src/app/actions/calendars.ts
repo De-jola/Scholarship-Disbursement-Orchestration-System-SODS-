@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireCan } from "@/lib/session";
 import { parseCalendarFile, EVENT_TYPES, type EventType } from "@/lib/calendar-parser";
 import {
-  addManualEvent, approveCalendar, createCalendarFromUpload, rejectCalendar, submitForReview,
+  addManualEvent, approveCalendar, correctCalendarEvent, createCalendarFromUpload, rejectCalendar, removeCalendarEvent, submitForReview,
 } from "@/lib/calendar-service";
 import type { ActionResult } from "@/components/ui/use-action";
 
@@ -85,6 +85,33 @@ export async function rejectCalendarAction(calendarId: string, reason: string): 
     await rejectCalendar(await requireCan("calendar.manage"), calendarId, reason);
     revalidatePath("/universities");
     return { ok: true, message: "Calendar rejected. The reason has been recorded in the audit log." };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function correctCalendarEventAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const actor = await requireCan("calendar.manage");
+    const eventType = String(formData.get("eventType")) as EventType;
+    await correctCalendarEvent(actor, String(formData.get("eventId") ?? ""), {
+      title: String(formData.get("title") ?? ""),
+      eventType,
+      startDate: new Date(`${String(formData.get("startDate"))}T09:00:00.000Z`),
+      endDate: new Date(`${String(formData.get("endDate"))}T09:00:00.000Z`),
+    });
+    revalidatePath("/universities");
+    return { ok: true, message: "Event corrected. The original AI extraction is kept in the audit trail." };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function removeCalendarEventAction(eventId: string): Promise<ActionResult> {
+  try {
+    await removeCalendarEvent(await requireCan("calendar.manage"), eventId);
+    revalidatePath("/universities");
+    return { ok: true, message: "Event removed from the calendar." };
   } catch (e) {
     return fail(e);
   }

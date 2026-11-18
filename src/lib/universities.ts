@@ -24,6 +24,9 @@ export interface CalendarView {
     endDate: string;
     confidence: number;
     sourceText: string;
+    correctedByName: string | null;
+    correctedAt: string | null;
+    original: { title: string; eventType: string; startDate: string; endDate: string; confidence: number } | null;
   }[];
 }
 
@@ -69,6 +72,8 @@ export async function getUniversitiesOverview(now: Date) {
         id: e.id, eventType: e.eventType, title: e.title,
         startDate: e.startDate.toISOString(), endDate: e.endDate.toISOString(),
         confidence: e.confidence, sourceText: e.sourceText,
+        correctedByName: e.correctedByName, correctedAt: e.correctedAt?.toISOString() ?? null,
+        original: e.originalValue ? JSON.parse(e.originalValue) : null,
       })),
     }));
 
