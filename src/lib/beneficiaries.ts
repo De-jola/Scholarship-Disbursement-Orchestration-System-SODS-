@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { DEFAULT_PAGE_SIZE, paginate } from "@/lib/pagination";
+import { selectEffectiveCalendar } from "@/lib/effective-calendar";
 
 export interface BeneficiaryFilters {
   universityId?: string;
@@ -67,7 +68,7 @@ export async function listBeneficiariesPage(f: BeneficiaryFilters, page: number,
 
 export type BeneficiaryListRow = Awaited<ReturnType<typeof listBeneficiaries>>[number];
 
-export async function getBeneficiaryDetail(id: string) {
+export async function getBeneficiaryDetail(id: string, now: Date = new Date()) {
   const b = await db.beneficiary.findUnique({
     where: { id },
     include: {
@@ -79,8 +80,8 @@ export async function getBeneficiaryDetail(id: string) {
   });
   if (!b) return null;
 
-  const forSession = b.university.calendars.filter((c) => c.session === b.academicSession);
-  const cal = forSession.find((c) => c.reviewStatus === "APPROVED") ?? forSession[0];
+  const eff = selectEffectiveCalendar(b.university.calendars, now);
+  const cal = eff.calendar;
   const registration = cal?.events.find((e) => e.eventType === "REGISTRATION");
 
   return {
@@ -105,7 +106,7 @@ export async function getBeneficiaryDetail(id: string) {
     hasBankToken: !!b.bankAccountToken,
     calendar: cal
       ? {
-          id: cal.id, session: cal.session, reviewStatus: cal.reviewStatus,
+          id: cal.id, session: cal.session, reviewStatus: cal.reviewStatus, expired: eff.status === "EXPIRED",
           registrationStart: registration?.startDate ?? null, registrationEnd: registration?.endDate ?? null,
         }
       : null,

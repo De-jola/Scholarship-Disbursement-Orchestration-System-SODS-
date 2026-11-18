@@ -29,7 +29,7 @@ export default async function BeneficiariesPage({ searchParams }: { searchParams
     listBeneficiariesPage({ ...dbFilters, ids }, parsePage(searchParams.page)),
     db.university.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db.beneficiary.findMany({ select: { academicSession: true }, distinct: ["academicSession"], orderBy: { academicSession: "asc" } }),
-    selected ? getBeneficiaryDetail(selected) : Promise.resolve(null),
+    selected ? getBeneficiaryDetail(selected, getNow()) : Promise.resolve(null),
   ]);
 
   const active = Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) as Record<string, string>;

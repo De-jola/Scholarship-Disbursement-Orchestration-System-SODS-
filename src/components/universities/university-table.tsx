@@ -51,7 +51,12 @@ export function UniversityTable({ rows, canManage }: { rows: UniversityRow[]; ca
                   <tr key={u.id} className="hover:bg-slate-50">
                     <td><p className="font-medium text-navy-900">{u.name}</p><p className="text-xs text-slate-500">{u.shortName}</p></td>
                     <td>{u.state}</td>
-                    <td><Badge tone={s.tone}>{s.label}</Badge></td>
+                    <td>
+                      <Badge tone={s.tone}>{s.label}</Badge>
+                      {u.pendingSession && u.calendarStatus === "APPROVED" && (
+                        <p className="mt-1 text-xs text-amber-800">{u.pendingSession} calendar awaiting approval</p>
+                      )}
+                    </td>
                     <td>{u.currentSession}</td>
                     <td className="text-right tabular-nums">{u.beneficiaryCount}</td>
                     <td className="text-right tabular-nums">{u.readyCount}<span className="block text-xs text-slate-400">{u.verifiedCount} verified</span></td>

@@ -79,7 +79,7 @@ export function BeneficiaryDrawer({ detail, canResolve, readiness }: { detail: B
         <Section title="University and academic calendar">
           {detail.calendar ? (
             <dl className="grid grid-cols-2 gap-3">
-              <Row k="Calendar status" v={<StatusBadge kind="calendar" value={detail.calendar.reviewStatus} />} />
+              <Row k={`Calendar status (${detail.calendar.session})`} v={detail.calendar.expired ? <Badge tone="warning">Calendar expired</Badge> : <StatusBadge kind="calendar" value={detail.calendar.reviewStatus} />} />
               <Row k="Registration window" v={detail.calendar.registrationStart ? `${formatDate(detail.calendar.registrationStart)} – ${formatDate(detail.calendar.registrationEnd)}` : "Not specified"} />
             </dl>
           ) : <p className="text-sm text-slate-600">No calendar on file. Payments cannot be batched until a calendar is approved.</p>}

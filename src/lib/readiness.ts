@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { CURRENT_SESSION, STANDARD_AMOUNT } from "@/lib/constants";
+import { selectEffectiveCalendar } from "@/lib/effective-calendar";
 import { summarizeFund } from "@/lib/fund";
 import {
   evaluateReadiness, planBatches, readinessCategory,
@@ -22,38 +23,47 @@ export async function allocatableFunds(): Promise<number> {
   return Math.max(0, summarizeFund(fund, 0).available - earmarked);
 }
 
-async function loadFacts() {
+export async function loadFacts(now: Date) {
   const [people, unis, items] = await Promise.all([
     db.beneficiary.findMany({ where: { university: { status: "ACTIVE" } } }),
-    db.university.findMany({ where: { status: "ACTIVE" }, include: { calendars: { where: { session: CURRENT_SESSION }, include: { events: true } } } }),
-    db.paymentBatchItem.findMany({ where: { batch: { status: { in: [...ACTIVE_BATCH] }, academicSession: CURRENT_SESSION } }, select: { beneficiaryId: true } }),
+    db.university.findMany({ where: { status: "ACTIVE" }, include: { calendars: { include: { events: true } } } }),
+    db.paymentBatchItem.findMany({ where: { batch: { status: { in: [...ACTIVE_BATCH] } } }, select: { beneficiaryId: true, batch: { select: { academicSession: true } } } }),
   ]);
-  const batched = new Set(items.map((i) => i.beneficiaryId));
+  const batchedSessions = new Map<string, Set<string>>();
+  for (const i of items) {
+    const set = batchedSessions.get(i.beneficiaryId) ?? new Set<string>();
+    set.add(i.batch.academicSession);
+    batchedSessions.set(i.beneficiaryId, set);
+  }
 
   const calendars: Record<string, CalendarFacts | null> = {};
   const universityNames: Record<string, string> = {};
+  /** Session each university is currently operating in, from its latest approved calendar. */
+  const sessions: Record<string, string> = {};
   for (const u of unis) {
     universityNames[u.id] = u.name;
-    const cal = u.calendars.find((c) => c.reviewStatus === "APPROVED") ?? u.calendars.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-    calendars[u.id] = cal ? { reviewStatus: cal.reviewStatus, events: cal.events.map((e) => ({ eventType: e.eventType, startDate: e.startDate, endDate: e.endDate })) } : null;
+    const eff = selectEffectiveCalendar(u.calendars, now);
+    sessions[u.id] = eff.session ?? CURRENT_SESSION;
+    // An expired calendar must not authorise payments, so it is reported as EXPIRED rather than APPROVED.
+    calendars[u.id] = eff.calendar ? { reviewStatus: eff.status === "EXPIRED" ? "EXPIRED" : eff.calendar.reviewStatus, events: eff.calendar.events.map((e) => ({ eventType: e.eventType, startDate: e.startDate, endDate: e.endDate })) } : null;
   }
 
   const beneficiaries: BeneficiaryFacts[] = people.map((b) => ({
     id: b.id, universityId: b.universityId, fullName: b.fullName, verificationStatus: b.verificationStatus,
     exceptionType: b.exceptionType, exceptionResolvedAt: b.exceptionResolvedAt, otherScholarshipDeclaration: b.otherScholarshipDeclaration,
-    bankAccountToken: b.bankAccountToken, scholarshipStatus: b.scholarshipStatus, alreadyBatched: batched.has(b.id),
+    bankAccountToken: b.bankAccountToken, scholarshipStatus: b.scholarshipStatus, alreadyBatched: batchedSessions.get(b.id)?.has(sessions[b.universityId]) ?? false,
   }));
-  return { beneficiaries, calendars, universityNames };
+  return { facts: { beneficiaries, calendars, universityNames }, sessions };
 }
 
 export async function getBatchPlan(now: Date): Promise<BatchPlan> {
-  const [facts, availableFunds] = await Promise.all([loadFacts(), allocatableFunds()]);
+  const [{ facts }, availableFunds] = await Promise.all([loadFacts(now), allocatableFunds()]);
   return planBatches({ ...facts, now, amount: STANDARD_AMOUNT, availableFunds });
 }
 
 /** Readiness for every beneficiary, with fund allocation applied earliest payment window first. */
 export async function getReadinessMap(now: Date): Promise<Map<string, ReadinessView>> {
-  const [facts, availableFunds] = await Promise.all([loadFacts(), allocatableFunds()]);
+  const [{ facts }, availableFunds] = await Promise.all([loadFacts(now), allocatableFunds()]);
   const base = new Map<string, Readiness>();
   for (const b of facts.beneficiaries) {
     base.set(b.id, evaluateReadiness({ beneficiary: b, calendar: facts.calendars[b.universityId] ?? null, now, amount: STANDARD_AMOUNT, availableFunds: Infinity }));

@@ -1,9 +1,9 @@
 import { db } from "@/lib/db";
 import { CURRENT_SESSION } from "@/lib/constants";
-import { WINDOW_LEAD_DAYS } from "@/lib/rules";
+import { selectEffectiveCalendar, type CalendarState } from "@/lib/effective-calendar";
 import { getReadinessMap } from "@/lib/readiness";
 
-export type CalendarState = "APPROVED" | "PENDING_REVIEW" | "DRAFT" | "REJECTED" | "MISSING" | "EXPIRED";
+export type { CalendarState };
 
 export interface CalendarView {
   id: string;
@@ -42,22 +42,12 @@ export async function getUniversitiesOverview(now: Date) {
   });
 
   return unis.map((u) => {
-    const current = u.calendars.filter((c) => c.session === CURRENT_SESSION);
-    // Prefer the approved calendar, else the most recent one for the current session.
-    const shown = current.find((c) => c.reviewStatus === "APPROVED") ?? current[0];
+    // The latest approved calendar governs the university; see selectEffectiveCalendar.
+    const eff = selectEffectiveCalendar(u.calendars, now);
+    const calendarStatus: CalendarState = eff.status;
+    const nextPaymentWindow = eff.windowOpensAt;
 
-    let calendarStatus: CalendarState = "MISSING";
-    if (shown) calendarStatus = shown.reviewStatus as CalendarState;
-    else {
-      const old = u.calendars.find((c) => c.reviewStatus === "APPROVED");
-      const end = old?.events.find((e) => e.eventType === "SESSION_END")?.endDate;
-      if (old && end && end < now) calendarStatus = "EXPIRED";
-    }
-
-    const reg = shown?.reviewStatus === "APPROVED" ? shown.events.find((e) => e.eventType === "REGISTRATION") : undefined;
-    const nextPaymentWindow = reg ? new Date(reg.startDate.getTime() - WINDOW_LEAD_DAYS * 86_400_000) : null;
-
-    const calendars: CalendarView[] = u.calendars.map((c) => ({
+    const calendars: CalendarView[] = [...u.calendars].sort((x, y) => y.session.localeCompare(x.session) || y.createdAt.getTime() - x.createdAt.getTime()).map((c) => ({
       id: c.id,
       session: c.session,
       sourceType: c.sourceType,
@@ -83,7 +73,8 @@ export async function getUniversitiesOverview(now: Date) {
       shortName: u.shortName,
       state: u.state,
       calendarStatus,
-      currentSession: CURRENT_SESSION,
+      currentSession: eff.session ?? CURRENT_SESSION,
+      pendingSession: eff.pendingSession,
       beneficiaryCount: u.beneficiaries.length,
       verifiedCount: u.beneficiaries.filter((b) => b.verificationStatus === "VERIFIED").length,
       readyCount: u.beneficiaries.filter((b) => readinessMap.get(b.id)?.ready).length,

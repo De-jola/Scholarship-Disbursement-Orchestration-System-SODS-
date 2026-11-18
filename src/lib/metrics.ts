@@ -1,12 +1,9 @@
 import { db } from "@/lib/db";
 import { summarizeFund } from "@/lib/fund";
 import { humanize } from "@/lib/format";
-import { CURRENT_SESSION } from "@/lib/constants";
-import { WINDOW_LEAD_DAYS } from "@/lib/rules";
+import { selectEffectiveCalendar } from "@/lib/effective-calendar";
 import { getReadinessMap } from "@/lib/readiness";
 
-export { CURRENT_SESSION } from "@/lib/constants";
-export { WINDOW_LEAD_DAYS } from "@/lib/rules";
 
 export type AlertKind =
   | "MISSING_CALENDAR"
@@ -69,35 +66,20 @@ export async function getDashboardData(now: Date) {
 
   // ---- Alerts ----
   const alerts: DashboardAlert[] = [];
-  const approvedCurrent = (u: (typeof universities)[number]) =>
-    u.calendars.find((c) => c.session === CURRENT_SESSION && c.reviewStatus === "APPROVED");
-  const regStart = (c: { events: { eventType: string; startDate: Date }[] }) =>
-    c.events.find((e) => e.eventType === "REGISTRATION")?.startDate;
-
   for (const u of universities) {
-    const current = u.calendars.find((c) => c.session === CURRENT_SESSION);
-    if (!current) {
-      const old = u.calendars.find((c) => c.reviewStatus === "APPROVED");
-      if (old) {
-        const end = old.events.find((e) => e.eventType === "SESSION_END")?.endDate;
-        if (end && end < now) {
-          alerts.push({ kind: "EXPIRED_CALENDAR", severity: "warning", title: `Expired calendar: ${u.name}`, detail: `The approved ${old.session} calendar ended ${end.toISOString().slice(0, 10)}. Upload the ${CURRENT_SESSION} calendar.`, href: "/universities" });
-          continue;
-        }
-      }
-      alerts.push({ kind: "MISSING_CALENDAR", severity: "warning", title: `Missing calendar: ${u.name}`, detail: `No ${CURRENT_SESSION} academic calendar on file. Payments for this university cannot be batched.`, href: "/universities" });
+    // The latest approved calendar governs each university (see selectEffectiveCalendar).
+    const eff = selectEffectiveCalendar(u.calendars, now);
+    if (eff.status === "MISSING") {
+      alerts.push({ kind: "MISSING_CALENDAR", severity: "warning", title: `Missing calendar: ${u.name}`, detail: "No academic calendar on file. Payments for this university cannot be batched.", href: "/universities" });
+    } else if (eff.status === "EXPIRED" && eff.calendar) {
+      const end = eff.calendar.events.find((e) => e.eventType === "SESSION_END")?.endDate;
+      alerts.push({ kind: "EXPIRED_CALENDAR", severity: "warning", title: `Expired calendar: ${u.name}`, detail: `The approved ${eff.calendar.session} calendar ended ${end?.toISOString().slice(0, 10)}. Upload and approve the next session's calendar.`, href: "/universities" });
     }
-  }
-
-  for (const u of universities) {
-    const cal = approvedCurrent(u);
-    const start = cal ? regStart(cal) : undefined;
-    if (!cal || !start) continue;
-    const opens = new Date(start.getTime() - WINDOW_LEAD_DAYS * 86_400_000);
-    if (now < opens) continue;
-    const late = beneficiaries.filter((b) => b.universityId === u.id && b.verificationStatus === "AWAITING_RESULT");
-    if (late.length) {
-      alerts.push({ kind: "LATE_PORTAL_RESULT", severity: "info", title: `Late portal results: ${u.name}`, detail: `${late.length} beneficiar${late.length === 1 ? "y is" : "ies are"} awaiting a result while the payment window is open. A prior statement of result can be submitted.`, href: "/beneficiaries" });
+    if (eff.status === "APPROVED" && eff.windowOpensAt && now >= eff.windowOpensAt) {
+      const late = beneficiaries.filter((b) => b.universityId === u.id && b.verificationStatus === "AWAITING_RESULT");
+      if (late.length) {
+        alerts.push({ kind: "LATE_PORTAL_RESULT", severity: "info", title: `Late portal results: ${u.name}`, detail: `${late.length} beneficiar${late.length === 1 ? "y is" : "ies are"} awaiting a result while the payment window is open. A prior statement of result can be submitted.`, href: "/beneficiaries" });
+      }
     }
   }
 
