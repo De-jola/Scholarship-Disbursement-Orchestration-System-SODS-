@@ -9,3 +9,4 @@ prisma/dev.db-journal
 *.tsbuildinfo
 .DS_Store
 prisma/test-seed.db*
+.next-dev
