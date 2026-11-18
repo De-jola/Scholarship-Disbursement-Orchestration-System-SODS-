@@ -21,8 +21,8 @@ describe("listBeneficiaries", () => {
 
   it("filters by university, verification status, session and exception type", async () => {
     const { listBeneficiaries } = await import("@/lib/beneficiaries");
-    const nsu = await prisma.university.findFirstOrThrow({ where: { shortName: "NSU" } });
-    expect((await listBeneficiaries({ universityId: nsu.id })).every((r) => r.universityShortName === "NSU")).toBe(true);
+    const nsu = await prisma.university.findFirstOrThrow({ where: { shortName: "ABU" } });
+    expect((await listBeneficiaries({ universityId: nsu.id })).every((r) => r.universityShortName === "ABU")).toBe(true);
     expect((await listBeneficiaries({ status: "VERIFIED" })).length).toBe(24);
     expect(await listBeneficiaries({ session: "2019/2020" })).toHaveLength(0);
     const dup = await listBeneficiaries({ exceptionType: "DUPLICATE_SCHOLARSHIP" });
@@ -63,7 +63,7 @@ describe("getBeneficiaryDetail", () => {
 describe("duplicate-scholarship exceptions", () => {
   it("declaring another scholarship raises an exception, a verification event and an audit entry", async () => {
     const { declareDuplicateScholarship } = await import("@/lib/beneficiary-service");
-    const target = await prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: "VERIFIED", university: { shortName: "DPU" } } });
+    const target = await prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: "VERIFIED", university: { shortName: "DELSU" } } });
     await declareDuplicateScholarship(admin, target.id, "Declared a state bursary on the annual form");
     const after = await prisma.beneficiary.findUniqueOrThrow({ where: { id: target.id } });
     expect(after.verificationStatus).toBe("EXCEPTION");
@@ -75,7 +75,7 @@ describe("duplicate-scholarship exceptions", () => {
 
   it("requires a note to resolve, and clearing restores VERIFIED when a document was previously approved", async () => {
     const { resolveException } = await import("@/lib/beneficiary-service");
-    const target = await prisma.beneficiary.findFirstOrThrow({ where: { exceptionType: "DUPLICATE_SCHOLARSHIP", exceptionResolvedAt: null, university: { shortName: "CUT" } } });
+    const target = await prisma.beneficiary.findFirstOrThrow({ where: { exceptionType: "DUPLICATE_SCHOLARSHIP", exceptionResolvedAt: null, university: { shortName: "RSU" } } });
     await expect(resolveException(admin, target.id, "CLEARED", " ")).rejects.toThrow(/note/i);
     await resolveException(admin, target.id, "CLEARED", "Other award confirmed as non-monetary; no overlap");
     const after = await prisma.beneficiary.findUniqueOrThrow({ where: { id: target.id } });
@@ -123,5 +123,23 @@ describe("verification queue", () => {
     const queue = await getVerificationQueue();
     const counts = queue.map((c) => c.warnings.length);
     expect(counts).toEqual([...counts].sort((a, b) => b - a));
+  });
+});
+
+describe("listBeneficiariesPage", () => {
+  it("returns one page of rows with totals, honouring filters", async () => {
+    const { listBeneficiariesPage } = await import("@/lib/beneficiaries");
+    const total = await prisma.beneficiary.count();
+    const p1 = await listBeneficiariesPage({}, 1, 10);
+    expect(p1.rows).toHaveLength(10);
+    expect(p1.pagination).toMatchObject({ total, page: 1, pageSize: 10, from: 1, to: 10 });
+    const p2 = await listBeneficiariesPage({}, 2, 10);
+    expect(p2.rows.map((r) => r.id)).not.toEqual(p1.rows.map((r) => r.id));
+    expect(p2.rows.some((r) => p1.rows.some((x) => x.id === r.id))).toBe(false);
+    const last = await listBeneficiariesPage({}, 99, 10);
+    expect(last.pagination.page).toBe(Math.ceil(total / 10));
+    const filtered = await listBeneficiariesPage({ status: "VERIFIED" }, 1, 10);
+    expect(filtered.rows.every((r) => r.verificationStatus === "VERIFIED")).toBe(true);
+    expect(filtered.pagination.total).toBeGreaterThan(10);
   });
 });

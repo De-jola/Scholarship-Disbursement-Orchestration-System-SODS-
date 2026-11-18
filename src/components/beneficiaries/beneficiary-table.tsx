@@ -7,10 +7,10 @@ import { StatusBadge } from "@/components/status-badge";
 import { formatDate, humanize } from "@/lib/format";
 import type { BeneficiaryListRow } from "@/lib/beneficiaries";
 
-export function BeneficiaryTable({ rows, query }: { rows: BeneficiaryListRow[]; query: string }) {
+export function BeneficiaryTable({ rows, query, bare = false }: { rows: BeneficiaryListRow[]; query: string; bare?: boolean }) {
   const href = (id: string) => `/beneficiaries?${new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(query)), selected: id })}`;
   return (
-    <Card className="overflow-x-auto">
+    <Card className={bare ? "overflow-x-auto rounded-none border-0 shadow-none" : "overflow-x-auto"}>
       {rows.length === 0 ? (
         <EmptyState icon={Users} title="No beneficiaries match these filters" description="Clear or broaden the filters to see more beneficiaries." />
       ) : (

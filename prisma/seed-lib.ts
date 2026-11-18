@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { PrismaClient } from "@prisma/client";
+import { parseUniversities, shortNameFor } from "./institutions";
 
 /** Fixed per-beneficiary instalment used throughout the demo (NGN). */
 export const STANDARD_AMOUNT = 150_000;
@@ -20,21 +23,19 @@ const LAST = [
 interface UniSpec {
   shortName: string;
   name: string;
-  state: string;
-  site: string;
   matric: string;
   departments: string[];
 }
 
 const UNIS: UniSpec[] = [
-  { shortName: "NSU", name: "Northbridge State University", state: "Kaduna", site: "https://northbridge-su.example", matric: "NSU", departments: ["Chemical Engineering", "Economics", "Mathematics"] },
-  { shortName: "DPU", name: "Delta Plains University", state: "Delta", site: "https://deltaplains.example", matric: "DPU", departments: ["Petroleum Engineering", "Geology", "Accounting"] },
-  { shortName: "CUT", name: "Coastal University of Technology", state: "Rivers", site: "https://coastal-tech.example", matric: "CUT", departments: ["Marine Engineering", "Computer Science", "Mechanical Engineering"] },
-  { shortName: "RFU", name: "Riverside Federal University", state: "Niger", site: "https://riverside-fu.example", matric: "RFU", departments: ["Civil Engineering", "Agricultural Science", "Physics"] },
-  { shortName: "HSU", name: "Highland State University", state: "Plateau", site: "https://highland-su.example", matric: "HSU", departments: ["Mining Engineering", "Biochemistry", "Statistics"] },
-  { shortName: "LCU", name: "Lagoon City University", state: "Lagos", site: "https://lagooncity.example", matric: "LCU", departments: ["Electrical Engineering", "Business Administration", "Law"] },
-  { shortName: "SVU", name: "Savannah University", state: "Kano", site: "https://savannah-uni.example", matric: "SVU", departments: ["Agricultural Engineering", "Microbiology", "Sociology"] },
-  { shortName: "UUS", name: "Unity University of Science", state: "Enugu", site: "https://unity-science.example", matric: "UUS", departments: ["Industrial Chemistry", "Computer Engineering", "Pharmacy"] },
+  { shortName: "ABU", name: "Ahmadu Bello University, Zaria", matric: "ABU", departments: ["Chemical Engineering", "Economics", "Mathematics"] },
+  { shortName: "DELSU", name: "Delta State University, Abraka", matric: "DELSU", departments: ["Petroleum Engineering", "Geology", "Accounting"] },
+  { shortName: "RSU", name: "Rivers State University", matric: "RSU", departments: ["Marine Engineering", "Computer Science", "Mechanical Engineering"] },
+  { shortName: "FUTMINNA", name: "Federal University of Technology, Minna", matric: "FUTMINNA", departments: ["Civil Engineering", "Agricultural Science", "Physics"] },
+  { shortName: "UNIJOS", name: "University of Jos", matric: "UNIJOS", departments: ["Mining Engineering", "Biochemistry", "Statistics"] },
+  { shortName: "UNILAG", name: "University of Lagos", matric: "UNILAG", departments: ["Electrical Engineering", "Business Administration", "Law"] },
+  { shortName: "BUK", name: "Bayero University, Kano", matric: "BUK", departments: ["Agricultural Engineering", "Microbiology", "Sociology"] },
+  { shortName: "UNN", name: "University of Nigeria, Nsukka", matric: "UNN", departments: ["Industrial Chemistry", "Computer Engineering", "Pharmacy"] },
 ];
 
 type VS =
@@ -43,14 +44,14 @@ type VS =
 
 /** Verification status per slot, per university. Length defines head-count. */
 const PLAN: Record<string, VS[]> = {
-  NSU: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "REVIEW_PENDING", "VERIFIED"],
-  DPU: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "AWAITING_RESULT"],
-  CUT: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "EXCEPTION", "EXTRACTED"],
-  RFU: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "REVIEW_PENDING", "DOCUMENT_SUBMITTED", "NOT_STARTED", "AWAITING_RESULT", "EXTRACTED"],
-  HSU: ["NOT_STARTED", "AWAITING_RESULT", "AWAITING_RESULT", "REJECTED", "EXCEPTION", "VERIFIED"],
-  LCU: ["VERIFIED", "VERIFIED", "AWAITING_RESULT", "AWAITING_RESULT", "NOT_STARTED", "NOT_STARTED"],
-  SVU: ["NOT_STARTED", "NOT_STARTED", "NOT_STARTED", "AWAITING_RESULT", "DOCUMENT_SUBMITTED", "EXTRACTED"],
-  UUS: ["VERIFIED", "VERIFIED", "REVIEW_PENDING", "REVIEW_PENDING", "NOT_STARTED", "AWAITING_RESULT"],
+  ABU: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "REVIEW_PENDING", "VERIFIED"],
+  DELSU: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "AWAITING_RESULT"],
+  RSU: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "EXCEPTION", "EXTRACTED"],
+  FUTMINNA: ["VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "REVIEW_PENDING", "DOCUMENT_SUBMITTED", "NOT_STARTED", "AWAITING_RESULT", "EXTRACTED"],
+  UNIJOS: ["NOT_STARTED", "AWAITING_RESULT", "AWAITING_RESULT", "REJECTED", "EXCEPTION", "VERIFIED"],
+  UNILAG: ["VERIFIED", "VERIFIED", "AWAITING_RESULT", "AWAITING_RESULT", "NOT_STARTED", "NOT_STARTED"],
+  BUK: ["NOT_STARTED", "NOT_STARTED", "NOT_STARTED", "AWAITING_RESULT", "DOCUMENT_SUBMITTED", "EXTRACTED"],
+  UNN: ["VERIFIED", "VERIFIED", "REVIEW_PENDING", "REVIEW_PENDING", "NOT_STARTED", "AWAITING_RESULT"],
 };
 
 const pad = (n: number, w: number) => String(n).padStart(w, "0");
@@ -99,13 +100,25 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
   const admin = await prisma.user.create({ data: { name: "Adaeze Okonkwo", email: "adaeze.okonkwo@sdos.example.test", role: "ADMIN" } });
   const finance = await prisma.user.create({ data: { name: "Tunde Bakare", email: "tunde.bakare@sdos.example.test", role: "FINANCE_APPROVER" } });
 
+  const records = parseUniversities(readFileSync(path.resolve(process.cwd(), "data", "nigerian_universities_faculties.csv"), "utf8"));
+  const usedShort = new Set<string>();
   const uniIds: Record<string, string> = {};
-  for (const u of UNIS) {
+  const partnerNames = new Map(UNIS.map((u) => [u.name, u]));
+  for (const rec of records) {
+    const shortName = shortNameFor(rec.name, usedShort);
+    const partner = partnerNames.get(rec.name);
     const row = await prisma.university.create({
-      data: { name: u.name, shortName: u.shortName, state: u.state, websiteUrl: u.site },
+      data: {
+        name: rec.name, shortName, state: rec.state, websiteUrl: rec.websiteUrl, category: rec.category,
+        yearEstablished: rec.yearEstablished, status: partner ? "ACTIVE" : "INACTIVE",
+      },
     });
-    uniIds[u.shortName] = row.id;
+    if (partner) {
+      if (partner.shortName !== shortName) throw new Error(`Partner short name mismatch for ${rec.name}: ${shortName}`);
+      uniIds[shortName] = row.id;
+    }
   }
+  if (Object.keys(uniIds).length !== UNIS.length) throw new Error("A programme partner was not found in the institution dataset.");
 
   // ---- Academic calendars ----------------------------------------------
   type Ev = [string, string, string, string, number, string];
@@ -130,37 +143,37 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
     return cal;
   };
 
-  await mkCalendar("NSU", SESSION, "APPROVED", "CSV_UPLOAD", "nsu-calendar-2025-26.csv", [
+  await mkCalendar("ABU", SESSION, "APPROVED", "CSV_UPLOAD", "abu-calendar-2025-26.csv (illustrative)", [
     ["RESUMPTION", "Resumption of returning students", "2025-09-22", "2025-09-26", 0.97, "Returning students resume: 22 Sept 2025"],
     ["REGISTRATION", "Course registration (October window)", "2025-10-06", "2025-10-31", 0.96, "Registration opens 6 Oct, closes 31 Oct 2025"],
     ["LECTURES", "First-semester lectures", "2025-10-13", "2026-02-06", 0.94, "Lectures: 13 Oct 2025 - 6 Feb 2026"],
     ["EXAMINATION", "First-semester examinations", "2026-02-16", "2026-03-13", 0.93, "Exams: 16 Feb - 13 Mar 2026"],
     ["SESSION_END", "End of session", "2026-07-31", "2026-07-31", 0.9, "Session ends 31 Jul 2026"],
   ], "2025-09-29");
-  await mkCalendar("DPU", SESSION, "APPROVED", "SIMULATED_PORTAL", "Simulated portal feed: deltaplains.example/calendar", [
+  await mkCalendar("DELSU", SESSION, "APPROVED", "SIMULATED_PORTAL", "Simulated portal feed (illustrative dates)", [
     ["RESUMPTION", "Resumption", "2025-11-17", "2025-11-21", 0.9, "Resumption week beginning 17 Nov 2025"],
     ["REGISTRATION", "Course registration (December window)", "2025-12-01", "2025-12-19", 0.95, "Online registration 1 - 19 Dec 2025"],
     ["LECTURES", "First-semester lectures", "2025-12-08", "2026-04-10", 0.92, "Lectures: 8 Dec 2025 - 10 Apr 2026"],
     ["SESSION_END", "End of session", "2026-09-04", "2026-09-04", 0.88, "Session closes 4 Sept 2026"],
   ], "2025-11-24");
-  await mkCalendar("CUT", SESSION, "APPROVED", "MANUAL_ENTRY", "Manual entry by Scholarship Administrator", [
+  await mkCalendar("RSU", SESSION, "APPROVED", "MANUAL_ENTRY", "Manual entry (illustrative dates)", [
     ["RESUMPTION", "Delayed resumption (strike recovery)", "2026-01-05", "2026-01-09", 0.85, "Senate notice: resumption deferred to 5 Jan 2026"],
     ["REGISTRATION", "Course registration (January window)", "2026-01-12", "2026-01-30", 0.9, "Registration 12 - 30 Jan 2026"],
     ["LECTURES", "First-semester lectures", "2026-01-19", "2026-05-22", 0.9, "Lectures begin 19 Jan 2026"],
     ["SESSION_END", "End of session", "2026-10-30", "2026-10-30", 0.8, "Session end 30 Oct 2026"],
   ], "2025-12-18");
-  await mkCalendar("RFU", SESSION, "APPROVED", "CSV_UPLOAD", "rfu-calendar-2025-26.csv", [
+  await mkCalendar("FUTMINNA", SESSION, "APPROVED", "CSV_UPLOAD", "futminna-calendar-2025-26.csv (illustrative)", [
     ["RESUMPTION", "Resumption", "2025-11-03", "2025-11-07", 0.95, "Resumption: 3 Nov 2025"],
     ["REGISTRATION", "Course registration", "2025-11-10", "2025-11-28", 0.95, "Registration 10 - 28 Nov 2025"],
     ["LECTURES", "First-semester lectures", "2025-11-17", "2026-03-06", 0.93, "Lectures 17 Nov 2025 - 6 Mar 2026"],
     ["SESSION_END", "End of session", "2026-08-14", "2026-08-14", 0.9, "Session ends 14 Aug 2026"],
   ], "2025-11-05");
-  await mkCalendar("HSU", SESSION, "PENDING_REVIEW", "CSV_UPLOAD", "hsu-calendar-draft.csv", [
+  await mkCalendar("UNIJOS", SESSION, "PENDING_REVIEW", "CSV_UPLOAD", "unijos-calendar-draft.csv (illustrative)", [
     ["REGISTRATION", "Course registration", "2026-02-02", "2026-02-20", 0.71, "Reg. period tentatively 2 - 20 Feb 2026"],
     ["LECTURES", "First-semester lectures", "2026-02-09", "2026-06-12", 0.68, "Lectures (tentative) from 9 Feb 2026"],
     ["SESSION_END", "End of session", "2026-11-27", "2026-11-27", 0.62, "Session end tbc"],
   ]);
-  await mkCalendar("LCU", "2024/2025", "APPROVED", "CSV_UPLOAD", "lcu-calendar-2024-25.csv", [
+  await mkCalendar("UNILAG", "2024/2025", "APPROVED", "CSV_UPLOAD", "unilag-calendar-2024-25.csv (illustrative)", [
     ["REGISTRATION", "Course registration", "2024-10-07", "2024-10-25", 0.95, "Registration 7 - 25 Oct 2024"],
     ["SESSION_END", "End of session", "2025-07-25", "2025-07-25", 0.9, "Session ends 25 Jul 2025"],
   ], "2024-10-01");
@@ -184,9 +197,9 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
       const matric = `${u.matric}/${21 + (slot % 4)}/${pad(1000 + idx * 37, 5)}`;
       const ref = `SDOS-${SESSION.slice(0, 4)}-${pad(idx + 1, 4)}`;
 
-      const isDuplicate = u.shortName === "CUT" && slot === 4;
-      const isUnreadable = u.shortName === "HSU" && slot === 4;
-      const noToken = u.shortName === "LCU" && slot === 1;
+      const isDuplicate = u.shortName === "RSU" && slot === 4;
+      const isUnreadable = u.shortName === "UNIJOS" && slot === 4;
+      const noToken = u.shortName === "UNILAG" && slot === 1;
       const exceptionType = isDuplicate ? "DUPLICATE_SCHOLARSHIP" : isUnreadable ? "UNREADABLE_DOCUMENT" : null;
 
       const created = await prisma.beneficiary.create({
@@ -253,8 +266,8 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
         await addEvent("DOCUMENT_UPLOADED", "SYSTEM", "Beneficiary portal", "Document uploaded", 3);
         await addEvent("AI_EXTRACTION_COMPLETED", "SYSTEM", "Simulated extraction", "AI-assisted extraction complete (confidence 90%)", 3);
       } else if (status === "REVIEW_PENDING") {
-        const lowConf = u.shortName === "RFU" && slot === 5;
-        const mismatch = u.shortName === "NSU" && slot === 4;
+        const lowConf = u.shortName === "FUTMINNA" && slot === 5;
+        const mismatch = u.shortName === "ABU" && slot === 4;
         if (lowConf) {
           await withFields(0.62, "REVIEW_PENDING");
         } else if (mismatch) {
@@ -318,10 +331,10 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
     });
   };
 
-  const paid = await mkBatch("RFU", "Riverside Federal University - November 2025 cohort", "2025-11-14", "DISBURSEMENT_SIMULATED", [0, 1, 2], "SDOS-SIM-2025-0001", "2025-11-12");
-  const approved = await mkBatch("NSU", "Northbridge State University - October 2025 cohort", "2025-10-10", "APPROVED", [0, 1, 2, 3], "SDOS-SIM-2025-0002", "2025-10-08");
-  const pending = await mkBatch("DPU", "Delta Plains University - December 2025 cohort", "2025-12-05", "PENDING_APPROVAL", [0, 1, 2, 3, 4], null);
-  const draft = await mkBatch("CUT", "Coastal University of Technology - January 2026 cohort", "2026-01-14", "DRAFT", [0, 1, 2, 3], null);
+  const paid = await mkBatch("FUTMINNA", "Federal University of Technology, Minna - November 2025 cohort", "2025-11-14", "DISBURSEMENT_SIMULATED", [0, 1, 2], "SDOS-SIM-2025-0001", "2025-11-12");
+  const approved = await mkBatch("ABU", "Ahmadu Bello University, Zaria - October 2025 cohort", "2025-10-10", "APPROVED", [0, 1, 2, 3], "SDOS-SIM-2025-0002", "2025-10-08");
+  const pending = await mkBatch("DELSU", "Delta State University, Abraka - December 2025 cohort", "2025-12-05", "PENDING_APPROVAL", [0, 1, 2, 3, 4], null);
+  const draft = await mkBatch("RSU", "Rivers State University - January 2026 cohort", "2026-01-14", "DRAFT", [0, 1, 2, 3], null);
 
   const committed = approved.totalAmount;
   const disbursed = paid.totalAmount;
@@ -339,18 +352,18 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
   });
   const A = { name: admin.name, role: "ADMIN" };
   const F = { name: finance.name, role: "FINANCE_APPROVER" };
-  await audit(-108, A, "CALENDAR_UPLOADED", "AcademicCalendar", "Uploaded nsu-calendar-2025-26.csv (5 events extracted)", { universityId: uniIds.NSU });
-  await audit(-105, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Northbridge State University", { universityId: uniIds.NSU });
+  await audit(-108, A, "CALENDAR_UPLOADED", "AcademicCalendar", "Uploaded abu-calendar-2025-26.csv (illustrative) (5 events extracted)", { universityId: uniIds.ABU });
+  await audit(-105, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Ahmadu Bello University, Zaria", { universityId: uniIds.ABU });
   await audit(-100, A, "FUND_ALLOCATION_CREATED", "FundAllocation", "Created 2025/2026 Programme Fund of NGN 12,000,000");
-  await audit(-96, A, "BATCH_CREATED", "PaymentBatch", `Created batch for Northbridge State University (4 beneficiaries)`, { universityId: uniIds.NSU, paymentBatchId: approved.id });
-  await audit(-96, F, "BATCH_APPROVED", "PaymentBatch", "Approved batch SDOS-SIM-2025-0002 (NGN 600,000)", { universityId: uniIds.NSU, paymentBatchId: approved.id });
-  await audit(-59, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Riverside Federal University", { universityId: uniIds.RFU });
-  await audit(-61, F, "BATCH_APPROVED", "PaymentBatch", "Approved batch SDOS-SIM-2025-0001 (NGN 450,000)", { universityId: uniIds.RFU, paymentBatchId: paid.id });
-  await audit(-59, F, "DISBURSEMENT_SIMULATED", "PaymentBatch", "Simulated disbursement complete for 3 beneficiaries", { universityId: uniIds.RFU, paymentBatchId: paid.id });
-  await audit(-49, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Delta Plains University", { universityId: uniIds.DPU });
-  await audit(-38, A, "BATCH_CREATED", "PaymentBatch", "Created batch for Delta Plains University (5 beneficiaries); submitted for finance approval", { universityId: uniIds.DPU, paymentBatchId: pending.id });
-  await audit(-25, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Coastal University of Technology", { universityId: uniIds.CUT });
-  await audit(-12, A, "CALENDAR_UPLOADED", "AcademicCalendar", "Uploaded hsu-calendar-draft.csv (3 events, low confidence); awaiting review", { universityId: uniIds.HSU });
-  await audit(-7, A, "EXCEPTION_RAISED", "Beneficiary", "Duplicate scholarship declared; beneficiary excluded from batching", { universityId: uniIds.CUT, beneficiaryId: ben.CUT[4].id });
-  await audit(-3, A, "BATCH_CREATED", "PaymentBatch", "Created draft batch for Coastal University of Technology (4 beneficiaries)", { universityId: uniIds.CUT, paymentBatchId: draft.id });
+  await audit(-96, A, "BATCH_CREATED", "PaymentBatch", `Created batch for Ahmadu Bello University, Zaria (4 beneficiaries)`, { universityId: uniIds.ABU, paymentBatchId: approved.id });
+  await audit(-96, F, "BATCH_APPROVED", "PaymentBatch", "Approved batch SDOS-SIM-2025-0002 (NGN 600,000)", { universityId: uniIds.ABU, paymentBatchId: approved.id });
+  await audit(-59, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Federal University of Technology, Minna", { universityId: uniIds.FUTMINNA });
+  await audit(-61, F, "BATCH_APPROVED", "PaymentBatch", "Approved batch SDOS-SIM-2025-0001 (NGN 450,000)", { universityId: uniIds.FUTMINNA, paymentBatchId: paid.id });
+  await audit(-59, F, "DISBURSEMENT_SIMULATED", "PaymentBatch", "Simulated disbursement complete for 3 beneficiaries", { universityId: uniIds.FUTMINNA, paymentBatchId: paid.id });
+  await audit(-49, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Delta State University, Abraka", { universityId: uniIds.DELSU });
+  await audit(-38, A, "BATCH_CREATED", "PaymentBatch", "Created batch for Delta State University, Abraka (5 beneficiaries); submitted for finance approval", { universityId: uniIds.DELSU, paymentBatchId: pending.id });
+  await audit(-25, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Rivers State University", { universityId: uniIds.RSU });
+  await audit(-12, A, "CALENDAR_UPLOADED", "AcademicCalendar", "Uploaded unijos-calendar-draft.csv (illustrative) (3 events, low confidence); awaiting review", { universityId: uniIds.UNIJOS });
+  await audit(-7, A, "EXCEPTION_RAISED", "Beneficiary", "Duplicate scholarship declared; beneficiary excluded from batching", { universityId: uniIds.RSU, beneficiaryId: ben.RSU[4].id });
+  await audit(-3, A, "BATCH_CREATED", "PaymentBatch", "Created draft batch for Rivers State University (4 beneficiaries)", { universityId: uniIds.RSU, paymentBatchId: draft.id });
 }

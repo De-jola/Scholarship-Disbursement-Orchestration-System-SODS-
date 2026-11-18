@@ -15,31 +15,31 @@ describe("universities overview", () => {
     const { getUniversitiesOverview } = await import("@/lib/universities");
     const rows = await getUniversitiesOverview(NOW);
     const by = Object.fromEntries(rows.map((r) => [r.shortName, r]));
-    expect(by.NSU.calendarStatus).toBe("APPROVED");
-    expect(by.HSU.calendarStatus).toBe("PENDING_REVIEW");
-    expect(by.SVU.calendarStatus).toBe("MISSING");
-    expect(by.LCU.calendarStatus).toBe("EXPIRED");
+    expect(by.ABU.calendarStatus).toBe("APPROVED");
+    expect(by.UNIJOS.calendarStatus).toBe("PENDING_REVIEW");
+    expect(by.BUK.calendarStatus).toBe("MISSING");
+    expect(by.UNILAG.calendarStatus).toBe("EXPIRED");
   });
 
   it("reports the payment window as 14 days before registration opens", async () => {
     const { getUniversitiesOverview } = await import("@/lib/universities");
     const rows = await getUniversitiesOverview(NOW);
-    const nsu = rows.find((r) => r.shortName === "NSU")!;
+    const nsu = rows.find((r) => r.shortName === "ABU")!;
     expect(nsu.nextPaymentWindow?.toISOString().slice(0, 10)).toBe("2025-09-22");
-    expect(rows.find((r) => r.shortName === "CUT")!.nextPaymentWindow?.toISOString().slice(0, 10)).toBe("2025-12-29");
-    expect(rows.find((r) => r.shortName === "SVU")!.nextPaymentWindow).toBeNull();
+    expect(rows.find((r) => r.shortName === "RSU")!.nextPaymentWindow?.toISOString().slice(0, 10)).toBe("2025-12-29");
+    expect(rows.find((r) => r.shortName === "BUK")!.nextPaymentWindow).toBeNull();
   });
 
   it("counts beneficiaries and verified beneficiaries", async () => {
     const { getUniversitiesOverview } = await import("@/lib/universities");
-    const nsu = (await getUniversitiesOverview(NOW)).find((r) => r.shortName === "NSU")!;
+    const nsu = (await getUniversitiesOverview(NOW)).find((r) => r.shortName === "ABU")!;
     expect(nsu.beneficiaryCount).toBe(6);
     expect(nsu.verifiedCount).toBe(5);
   });
 
   it("includes calendars with events for the review drawer, newest first", async () => {
     const { getUniversitiesOverview } = await import("@/lib/universities");
-    const nsu = (await getUniversitiesOverview(NOW)).find((r) => r.shortName === "NSU")!;
+    const nsu = (await getUniversitiesOverview(NOW)).find((r) => r.shortName === "ABU")!;
     expect(nsu.calendars[0].events.length).toBeGreaterThan(0);
     expect(nsu.calendars[0].avgConfidence).toBeGreaterThan(0.8);
   });

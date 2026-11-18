@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { DEFAULT_PAGE_SIZE, paginate } from "@/lib/pagination";
 
 export interface BeneficiaryFilters {
   universityId?: string;
@@ -9,7 +10,7 @@ export interface BeneficiaryFilters {
   q?: string;
 }
 
-export async function listBeneficiaries(f: BeneficiaryFilters) {
+function buildWhere(f: BeneficiaryFilters): Prisma.BeneficiaryWhereInput {
   const where: Prisma.BeneficiaryWhereInput = {};
   if (f.universityId) where.universityId = f.universityId;
   if (f.status) where.verificationStatus = f.status as never;
@@ -24,8 +25,11 @@ export async function listBeneficiaries(f: BeneficiaryFilters) {
       { applicationRef: { contains: q } },
     ];
   }
-  const rows = await db.beneficiary.findMany({ where, include: { university: true }, orderBy: { lastActivityAt: "desc" } });
-  return rows.map((b) => ({
+  return where;
+}
+
+function toRow(b: Prisma.BeneficiaryGetPayload<{ include: { university: true } }>) {
+  return {
     id: b.id,
     applicationRef: b.applicationRef,
     fullName: b.fullName,
@@ -41,7 +45,21 @@ export async function listBeneficiaries(f: BeneficiaryFilters) {
     exceptionResolvedAt: b.exceptionResolvedAt,
     otherScholarshipDeclaration: b.otherScholarshipDeclaration,
     lastActivityAt: b.lastActivityAt,
-  }));
+  };
+}
+
+export async function listBeneficiaries(f: BeneficiaryFilters) {
+  const rows = await db.beneficiary.findMany({ where: buildWhere(f), include: { university: true }, orderBy: { lastActivityAt: "desc" } });
+  return rows.map(toRow);
+}
+
+export async function listBeneficiariesPage(f: BeneficiaryFilters, page: number, pageSize = DEFAULT_PAGE_SIZE) {
+  const where = buildWhere(f);
+  const pagination = paginate(await db.beneficiary.count({ where }), page, pageSize);
+  const rows = await db.beneficiary.findMany({
+    where, include: { university: true }, orderBy: [{ lastActivityAt: "desc" }, { id: "asc" }], skip: pagination.skip, take: pagination.take,
+  });
+  return { rows: rows.map(toRow), pagination };
 }
 
 export type BeneficiaryListRow = Awaited<ReturnType<typeof listBeneficiaries>>[number];

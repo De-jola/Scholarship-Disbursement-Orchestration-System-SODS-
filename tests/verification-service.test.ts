@@ -15,7 +15,7 @@ const awaiting = (short: string) => prisma.beneficiary.findFirstOrThrow({ where:
 describe("late portal fallback (scenario 2)", () => {
   it("submitting a document moves the beneficiary to DOCUMENT_SUBMITTED with an event and audit entry", async () => {
     const { submitResultDocument } = await import("@/lib/verification-service");
-    const b = await awaiting("DPU");
+    const b = await awaiting("DELSU");
     const sub = await submitResultDocument(admin, b.id, "prior-statement-of-result-name-mismatch.pdf", "STATEMENT_OF_RESULT");
     expect(sub.status).toBe("UPLOADED");
     expect((await prisma.beneficiary.findUniqueOrThrow({ where: { id: b.id } })).verificationStatus).toBe("DOCUMENT_SUBMITTED");
@@ -25,7 +25,7 @@ describe("late portal fallback (scenario 2)", () => {
 
   it("extraction stores fields with warnings, flags the name mismatch and moves to REVIEW_PENDING", async () => {
     const { runExtraction } = await import("@/lib/verification-service");
-    const b = await awaiting("DPU").catch(() => prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: "DOCUMENT_SUBMITTED", university: { shortName: "DPU" } } }));
+    const b = await awaiting("DELSU").catch(() => prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: "DOCUMENT_SUBMITTED", university: { shortName: "DELSU" } } }));
     const sub = await prisma.resultSubmission.findFirstOrThrow({ where: { beneficiaryId: b.id } });
     await runExtraction(admin, sub.id);
     const after = await prisma.resultSubmission.findUniqueOrThrow({ where: { id: sub.id }, include: { fields: true } });
@@ -39,7 +39,7 @@ describe("late portal fallback (scenario 2)", () => {
 
   it("cannot approve until every field is confirmed or corrected", async () => {
     const { approveVerification } = await import("@/lib/verification-service");
-    const sub = await prisma.resultSubmission.findFirstOrThrow({ where: { status: "REVIEW_PENDING", beneficiary: { university: { shortName: "DPU" } }, fields: { some: { warning: { contains: "differs" } } } } });
+    const sub = await prisma.resultSubmission.findFirstOrThrow({ where: { status: "REVIEW_PENDING", beneficiary: { university: { shortName: "DELSU" } }, fields: { some: { warning: { contains: "differs" } } } } });
     await expect(approveVerification(admin, sub.id)).rejects.toThrow(/every extracted field/i);
   });
 
@@ -81,14 +81,14 @@ describe("reviewer decisions", () => {
 
   it("requires a note to reject or to mark an exception", async () => {
     const { rejectVerification, markException } = await import("@/lib/verification-service");
-    const { sub } = await pendingSubmission("UUS");
+    const { sub } = await pendingSubmission("UNN");
     await expect(rejectVerification(admin, sub.id, "")).rejects.toThrow(/note/i);
     await expect(markException(admin, sub.id, "   ")).rejects.toThrow(/note/i);
   });
 
   it("rejecting prevents verification and records the reason", async () => {
     const { rejectVerification } = await import("@/lib/verification-service");
-    const { b, sub } = await pendingSubmission("UUS");
+    const { b, sub } = await pendingSubmission("UNN");
     await rejectVerification(admin, sub.id, "Matric number does not match enrolment list");
     expect((await prisma.beneficiary.findUniqueOrThrow({ where: { id: b.id } })).verificationStatus).toBe("REJECTED");
     expect((await prisma.resultSubmission.findUniqueOrThrow({ where: { id: sub.id } })).reviewerNotes).toContain("Matric");
@@ -97,7 +97,7 @@ describe("reviewer decisions", () => {
 
   it("marking an exception blocks automatic batching and records an exception event", async () => {
     const { markException } = await import("@/lib/verification-service");
-    const { b, sub } = await pendingSubmission("UUS");
+    const { b, sub } = await pendingSubmission("UNN");
     await markException(admin, sub.id, "Result date inconsistent with session");
     const after = await prisma.beneficiary.findUniqueOrThrow({ where: { id: b.id } });
     expect(after.verificationStatus).toBe("EXCEPTION");
@@ -107,7 +107,7 @@ describe("reviewer decisions", () => {
 
   it("requesting a clearer copy returns the beneficiary to AWAITING_RESULT", async () => {
     const { requestClearerCopy } = await import("@/lib/verification-service");
-    const { b, sub } = await pendingSubmission("RFU");
+    const { b, sub } = await pendingSubmission("FUTMINNA");
     await requestClearerCopy(admin, sub.id, "Bottom half of the page is cut off");
     expect((await prisma.beneficiary.findUniqueOrThrow({ where: { id: b.id } })).verificationStatus).toBe("AWAITING_RESULT");
     expect(await prisma.auditLog.count({ where: { beneficiaryId: b.id, action: "CLEARER_COPY_REQUESTED" } })).toBe(1);
@@ -115,7 +115,7 @@ describe("reviewer decisions", () => {
 
   it("an unreadable upload raises an UNREADABLE_DOCUMENT exception instead of fields", async () => {
     const { submitResultDocument, runExtraction } = await import("@/lib/verification-service");
-    const b = await prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: "AWAITING_RESULT", university: { shortName: "LCU" } } });
+    const b = await prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: "AWAITING_RESULT", university: { shortName: "UNILAG" } } });
     const sub = await submitResultDocument(admin, b.id, "photo-unreadable.pdf", "STATEMENT_OF_RESULT");
     await runExtraction(admin, sub.id);
     const after = await prisma.beneficiary.findUniqueOrThrow({ where: { id: b.id } });

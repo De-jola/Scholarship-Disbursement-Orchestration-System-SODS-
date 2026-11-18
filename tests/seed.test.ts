@@ -32,8 +32,9 @@ describe("seed data", () => {
     expect(roles).toEqual(["ADMIN", "FINANCE_APPROVER"]);
   });
 
-  it("creates 8 universities and 40-60 beneficiaries", async () => {
-    expect(await prisma.university.count()).toBe(8);
+  it("imports the university directory (8 active partners) and creates 40-60 beneficiaries", async () => {
+    expect(await prisma.university.count()).toBe(312);
+    expect(await prisma.university.count({ where: { status: "ACTIVE" } })).toBe(8);
     const n = await prisma.beneficiary.count();
     expect(n).toBeGreaterThanOrEqual(40);
     expect(n).toBeLessThanOrEqual(60);
@@ -72,9 +73,9 @@ describe("seed data", () => {
       const reg = cal.events.find((e) => e.eventType === "REGISTRATION")!;
       return reg.startDate.getUTCMonth() + 1;
     };
-    expect(await month("NSU")).toBe(10);
-    expect(await month("DPU")).toBe(12);
-    expect(await month("CUT")).toBe(1);
+    expect(await month("ABU")).toBe(10);
+    expect(await month("DELSU")).toBe(12);
+    expect(await month("RSU")).toBe(1);
   });
 
   it("has calendar edge cases: missing, pending review, expired", async () => {

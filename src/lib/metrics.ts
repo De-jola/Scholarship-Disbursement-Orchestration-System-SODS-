@@ -32,7 +32,7 @@ export async function getDashboardData(now: Date) {
   const [fund, beneficiaries, universities, batches, lowConf, failedItems, activity, paidItems] = await Promise.all([
     db.fundAllocation.findFirst({ orderBy: { createdAt: "asc" } }),
     db.beneficiary.findMany({ select: { id: true, fullName: true, universityId: true, verificationStatus: true, exceptionType: true, exceptionResolvedAt: true, otherScholarshipDeclaration: true } }),
-    db.university.findMany({ include: { calendars: { include: { events: true } } }, orderBy: { name: "asc" } }),
+    db.university.findMany({ where: { status: "ACTIVE" }, include: { calendars: { include: { events: true } } }, orderBy: { name: "asc" } }),
     db.paymentBatch.findMany({ include: { university: true } }),
     db.resultSubmission.findMany({
       where: { status: { in: ["REVIEW_PENDING", "EXTRACTED"] }, extractionConfidence: { lt: 0.8, gt: 0 } },

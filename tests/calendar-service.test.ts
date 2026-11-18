@@ -22,7 +22,7 @@ const events = [
 describe("calendar service", () => {
   it("creates an uploaded calendar in PENDING_REVIEW and writes an audit entry", async () => {
     const { createCalendarFromUpload } = await import("@/lib/calendar-service");
-    const u = await uni("SVU");
+    const u = await uni("BUK");
     const cal = await createCalendarFromUpload(admin, { universityId: u.id, session: "2025/2026", sourceType: "CSV_UPLOAD", sourceName: "svu.csv", events });
     expect(cal.reviewStatus).toBe("PENDING_REVIEW");
     const log = await prisma.auditLog.findFirst({ where: { action: "CALENDAR_UPLOADED", universityId: u.id } });
@@ -31,14 +31,14 @@ describe("calendar service", () => {
 
   it("refuses to approve a calendar without a registration event", async () => {
     const { createCalendarFromUpload, approveCalendar } = await import("@/lib/calendar-service");
-    const u = await uni("UUS");
+    const u = await uni("UNN");
     const cal = await createCalendarFromUpload(admin, { universityId: u.id, session: "2025/2026", sourceType: "CSV_UPLOAD", sourceName: "uus.csv", events: [events[1]] });
     await expect(approveCalendar(admin, cal.id)).rejects.toThrow(/registration/i);
   });
 
   it("approves a valid calendar, recording approver and timestamp, and audits it", async () => {
     const { approveCalendar } = await import("@/lib/calendar-service");
-    const cal = await prisma.academicCalendar.findFirstOrThrow({ where: { university: { shortName: "HSU" }, reviewStatus: "PENDING_REVIEW" } });
+    const cal = await prisma.academicCalendar.findFirstOrThrow({ where: { university: { shortName: "UNIJOS" }, reviewStatus: "PENDING_REVIEW" } });
     await approveCalendar(admin, cal.id);
     const after = await prisma.academicCalendar.findUniqueOrThrow({ where: { id: cal.id } });
     expect(after.reviewStatus).toBe("APPROVED");
@@ -49,7 +49,7 @@ describe("calendar service", () => {
 
   it("requires a reason to reject and leaves the calendar rejected", async () => {
     const { rejectCalendar } = await import("@/lib/calendar-service");
-    const cal = await prisma.academicCalendar.findFirstOrThrow({ where: { university: { shortName: "SVU" }, reviewStatus: "PENDING_REVIEW" } });
+    const cal = await prisma.academicCalendar.findFirstOrThrow({ where: { university: { shortName: "BUK" }, reviewStatus: "PENDING_REVIEW" } });
     await expect(rejectCalendar(admin, cal.id, "  ")).rejects.toThrow(/reason/i);
     await rejectCalendar(admin, cal.id, "Dates conflict with Senate notice");
     const after = await prisma.academicCalendar.findUniqueOrThrow({ where: { id: cal.id } });
@@ -59,7 +59,7 @@ describe("calendar service", () => {
 
   it("locks approved calendars against manual edits", async () => {
     const { addManualEvent } = await import("@/lib/calendar-service");
-    const u = await uni("NSU");
+    const u = await uni("ABU");
     await expect(
       addManualEvent(admin, { universityId: u.id, session: "2025/2026", eventType: "BREAK", title: "Mid-session break", startDate: new Date("2026-04-01"), endDate: new Date("2026-04-10") }),
     ).rejects.toThrow(/approved/i);
@@ -67,7 +67,7 @@ describe("calendar service", () => {
 
   it("creates a draft manual calendar on first manual event, and submit moves it to review", async () => {
     const { addManualEvent, submitForReview } = await import("@/lib/calendar-service");
-    const u = await uni("LCU");
+    const u = await uni("UNILAG");
     const cal = await addManualEvent(admin, { universityId: u.id, session: "2025/2026", eventType: "REGISTRATION", title: "Registration", startDate: new Date("2026-02-09"), endDate: new Date("2026-02-27") });
     expect(cal.reviewStatus).toBe("DRAFT");
     expect(cal.sourceType).toBe("MANUAL_ENTRY");
@@ -77,7 +77,7 @@ describe("calendar service", () => {
 
   it("supersedes a previously approved calendar for the same session when a revised one is approved", async () => {
     const { createCalendarFromUpload, approveCalendar } = await import("@/lib/calendar-service");
-    const u = await uni("DPU");
+    const u = await uni("DELSU");
     const revised = await createCalendarFromUpload(admin, { universityId: u.id, session: "2025/2026", sourceType: "CSV_UPLOAD", sourceName: "dpu-v2.csv", events });
     await approveCalendar(admin, revised.id);
     const approved = await prisma.academicCalendar.findMany({ where: { universityId: u.id, session: "2025/2026", reviewStatus: "APPROVED" } });

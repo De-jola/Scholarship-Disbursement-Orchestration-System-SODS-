@@ -132,6 +132,8 @@ model University {
   shortName     String             @unique
   state         String
   websiteUrl    String
+  category      String             @default("")
+  yearEstablished Int?
   status        UniversityStatus   @default(ACTIVE)
   createdAt     DateTime           @default(now())
   calendars     AcademicCalendar[]

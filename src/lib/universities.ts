@@ -27,6 +27,7 @@ export interface CalendarView {
 
 export async function getUniversitiesOverview(now: Date) {
   const unis = await db.university.findMany({
+    where: { status: "ACTIVE" },
     orderBy: { name: "asc" },
     include: {
       calendars: { include: { events: { orderBy: { startDate: "asc" } } }, orderBy: { createdAt: "desc" } },
