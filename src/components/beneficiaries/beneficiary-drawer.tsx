@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { useAction } from "@/components/ui/use-action";
 import { declareDuplicateAction, resolveExceptionAction } from "@/app/actions/beneficiaries";
+import { uploadResultDocumentAction, type UploadScenario } from "@/app/actions/verification";
 import { formatDate, formatDateTime, formatNaira, formatPercent, humanize } from "@/lib/format";
 import type { BeneficiaryDetail } from "@/lib/beneficiaries";
 
@@ -29,6 +30,8 @@ export function BeneficiaryDrawer({ detail, canResolve }: { detail: BeneficiaryD
   const params = useSearchParams();
   const { run, pending } = useAction();
   const [note, setNote] = useState("");
+  const [docType, setDocType] = useState<"STATEMENT_OF_RESULT" | "TRANSCRIPT" | "COURSE_REGISTRATION_FORM">("STATEMENT_OF_RESULT");
+  const [scenario, setScenario] = useState<UploadScenario>("CLEAN");
 
   const close = () => {
     const p = new URLSearchParams(params.toString());
@@ -134,6 +137,36 @@ export function BeneficiaryDrawer({ detail, canResolve }: { detail: BeneficiaryD
             </ul>
           )}
         </Section>
+
+        {canResolve && (["NOT_STARTED", "AWAITING_RESULT"].includes(detail.verificationStatus) || (detail.verificationStatus === "EXCEPTION" && detail.exceptionType === "UNREADABLE_DOCUMENT")) && (
+          <Section title="Late portal fallback: submit a prior result document">
+            <p className="mb-2 text-sm text-slate-600">
+              Use when the university portal has not published results. Upload is simulated: no file is stored, and AI-assisted extraction runs immediately. Human review is still required.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="up-type" className="label">Document type</label>
+                <select id="up-type" className="field" value={docType} onChange={(e) => setDocType(e.target.value as typeof docType)}>
+                  <option value="STATEMENT_OF_RESULT">Statement of result</option>
+                  <option value="TRANSCRIPT">Transcript</option>
+                  <option value="COURSE_REGISTRATION_FORM">Course registration form</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="up-scn" className="label">Simulated document quality</label>
+                <select id="up-scn" className="field" value={scenario} onChange={(e) => setScenario(e.target.value as UploadScenario)}>
+                  <option value="CLEAN">Clear scan</option>
+                  <option value="NAME_MISMATCH">Name differs from record</option>
+                  <option value="LOW_QUALITY">Low-quality scan</option>
+                  <option value="UNREADABLE">Unreadable image</option>
+                </select>
+              </div>
+            </div>
+            <Button className="mt-3" disabled={pending} onClick={() => run(() => uploadResultDocumentAction(detail.id, docType, scenario))}>
+              {pending ? "Uploading and running AI-assisted extraction…" : "Upload and run AI-assisted extraction"}
+            </Button>
+          </Section>
+        )}
 
         <Section title="Actions">
           {!canResolve ? (

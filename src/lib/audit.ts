@@ -1,5 +1,4 @@
 import { db } from "@/lib/db";
-import type { Session } from "@/lib/session";
 
 export type AuditAction =
   | "CALENDAR_UPLOADED" | "CALENDAR_EVENT_ADDED" | "CALENDAR_APPROVED" | "CALENDAR_REJECTED"
@@ -11,7 +10,7 @@ export type AuditAction =
 
 /** Audit entries are append-only: there is deliberately no update/delete helper. */
 export async function logAudit(
-  actor: Pick<Session, "name" | "role">,
+  actor: { name: string; role: string },
   action: AuditAction,
   entityType: string,
   details: string,
