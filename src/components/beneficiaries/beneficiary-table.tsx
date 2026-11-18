@@ -4,22 +4,23 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { ReadinessBadge, type ReadinessLite } from "@/components/beneficiaries/readiness-badge";
 import { formatDate, humanize } from "@/lib/format";
 import type { BeneficiaryListRow } from "@/lib/beneficiaries";
 
-export function BeneficiaryTable({ rows, query, bare = false }: { rows: BeneficiaryListRow[]; query: string; bare?: boolean }) {
+export function BeneficiaryTable({ rows, query, readiness, bare = false }: { rows: BeneficiaryListRow[]; query: string; readiness: Record<string, ReadinessLite>; bare?: boolean }) {
   const href = (id: string) => `/beneficiaries?${new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(query)), selected: id })}`;
   return (
     <Card className={bare ? "overflow-x-auto rounded-none border-0 shadow-none" : "overflow-x-auto"}>
       {rows.length === 0 ? (
         <EmptyState icon={Users} title="No beneficiaries match these filters" description="Clear or broaden the filters to see more beneficiaries." />
       ) : (
-        <table className="w-full min-w-[960px]">
+        <table className="w-full min-w-[1100px]">
           <caption className="sr-only">Scholarship beneficiaries</caption>
           <thead>
             <tr>
               <th scope="col">Beneficiary</th><th scope="col">University</th><th scope="col">Department</th><th scope="col">Level</th>
-              <th scope="col">Session</th><th scope="col">Verification status</th><th scope="col">Other scholarship</th><th scope="col">Last activity</th>
+              <th scope="col">Session</th><th scope="col">Verification status</th><th scope="col">Payment readiness</th><th scope="col">Other scholarship</th><th scope="col">Last activity</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -37,6 +38,7 @@ export function BeneficiaryTable({ rows, query, bare = false }: { rows: Benefici
                   <StatusBadge kind="verification" value={b.verificationStatus} />
                   {b.exceptionType && !b.exceptionResolvedAt && <p className="mt-1 text-xs text-red-700">{humanize(b.exceptionType)}</p>}
                 </td>
+                <td><ReadinessBadge readiness={readiness[b.id]} /></td>
                 <td>{b.otherScholarshipDeclaration ? <Badge tone="danger">Duplicate scholarship declared</Badge> : <span className="text-slate-400">None declared</span>}</td>
                 <td className="whitespace-nowrap text-xs">{formatDate(b.lastActivityAt)}</td>
               </tr>

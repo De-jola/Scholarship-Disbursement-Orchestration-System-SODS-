@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
-import { CURRENT_SESSION, WINDOW_LEAD_DAYS } from "@/lib/metrics";
+import { CURRENT_SESSION } from "@/lib/constants";
+import { WINDOW_LEAD_DAYS } from "@/lib/rules";
+import { getReadinessMap } from "@/lib/readiness";
 
 export type CalendarState = "APPROVED" | "PENDING_REVIEW" | "DRAFT" | "REJECTED" | "MISSING" | "EXPIRED";
 
@@ -26,12 +28,13 @@ export interface CalendarView {
 }
 
 export async function getUniversitiesOverview(now: Date) {
+  const readinessMap = await getReadinessMap(now);
   const unis = await db.university.findMany({
     where: { status: "ACTIVE" },
     orderBy: { name: "asc" },
     include: {
       calendars: { include: { events: { orderBy: { startDate: "asc" } } }, orderBy: { createdAt: "desc" } },
-      beneficiaries: { select: { verificationStatus: true } },
+      beneficiaries: { select: { id: true, verificationStatus: true } },
     },
   });
 
@@ -78,6 +81,7 @@ export async function getUniversitiesOverview(now: Date) {
       currentSession: CURRENT_SESSION,
       beneficiaryCount: u.beneficiaries.length,
       verifiedCount: u.beneficiaries.filter((b) => b.verificationStatus === "VERIFIED").length,
+      readyCount: u.beneficiaries.filter((b) => readinessMap.get(b.id)?.ready).length,
       nextPaymentWindow,
       calendars,
     };

@@ -22,7 +22,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 interface Props {
-  readiness: { university: string; verified: number; pending: number; blocked: number }[];
+  readiness: { university: string; ready: number; scheduled: number; waiting: number; blocked: number }[];
   statusBreakdown: { status: string; label: string; count: number }[];
   trend: { month: string; disbursed: number; committed: number }[];
 }
@@ -32,7 +32,7 @@ const millions = (v: number) => `₦${(v / 1_000_000).toFixed(2)}M`;
 export function DashboardCharts({ readiness, statusBreakdown, trend }: Props) {
   return (
     <div className="grid gap-4 xl:grid-cols-3">
-      <ChartCard title="Disbursement readiness by university" note="Verified, in-progress and blocked beneficiaries per institution.">
+      <ChartCard title="Disbursement readiness by university" note="Payment-ready, already scheduled, waiting (calendar, window or verification) and blocked beneficiaries per institution.">
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={readiness} margin={{ left: -16 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -40,9 +40,10 @@ export function DashboardCharts({ readiness, statusBreakdown, trend }: Props) {
             <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
             <Tooltip />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="verified" name="Verified" stackId="a" fill={GREEN} />
-            <Bar dataKey="pending" name="In progress" stackId="a" fill={SLATE} />
-            <Bar dataKey="blocked" name="Exception / rejected" stackId="a" fill={RED} />
+            <Bar dataKey="ready" name="Payment-ready" stackId="a" fill={GREEN} />
+            <Bar dataKey="scheduled" name="In a payment batch" stackId="a" fill={NAVY} />
+            <Bar dataKey="waiting" name="Waiting" stackId="a" fill={SLATE} />
+            <Bar dataKey="blocked" name="Blocked / exception" stackId="a" fill={RED} />
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>

@@ -6,6 +6,8 @@ import { Pagination } from "@/components/ui/pagination";
 import { getBeneficiaryDetail, listBeneficiariesPage } from "@/lib/beneficiaries";
 import { parsePage } from "@/lib/pagination";
 import { db } from "@/lib/db";
+import { getNow } from "@/lib/clock";
+import { getReadinessMap } from "@/lib/readiness";
 import { requireSession } from "@/lib/session";
 import { can } from "@/lib/permissions";
 
@@ -15,13 +17,16 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) 
 export default async function BeneficiariesPage({ searchParams }: { searchParams: Params }) {
   const filters = {
     q: one(searchParams.q), universityId: one(searchParams.universityId), status: one(searchParams.status),
-    session: one(searchParams.session), exceptionType: one(searchParams.exceptionType),
+    session: one(searchParams.session), exceptionType: one(searchParams.exceptionType), readiness: one(searchParams.readiness),
   };
   const selected = one(searchParams.selected);
   const session = await requireSession();
+  const readinessMap = await getReadinessMap(getNow());
+  const { readiness: readinessFilter, ...dbFilters } = filters;
+  const ids = readinessFilter ? [...readinessMap.entries()].filter(([, r]) => r.category.key === readinessFilter).map(([id]) => id) : undefined;
 
   const [{ rows, pagination }, universities, sessions, detail] = await Promise.all([
-    listBeneficiariesPage(filters, parsePage(searchParams.page)),
+    listBeneficiariesPage({ ...dbFilters, ids }, parsePage(searchParams.page)),
     db.university.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db.beneficiary.findMany({ select: { academicSession: true }, distinct: ["academicSession"], orderBy: { academicSession: "asc" } }),
     selected ? getBeneficiaryDetail(selected) : Promise.resolve(null),
@@ -36,10 +41,13 @@ export default async function BeneficiariesPage({ searchParams }: { searchParams
       <PageHeader title="Beneficiaries" description="Select a name to open the full record, verification timeline and payment history." />
       <BeneficiaryFilters values={filters} universities={universities} sessions={sessions.map((s) => s.academicSession)} />
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <BeneficiaryTable rows={rows} query={qs} bare />
+        <BeneficiaryTable rows={rows} query={qs} bare readiness={Object.fromEntries(rows.map((r) => [r.id, readinessMap.get(r.id)!.category]))} />
         <Pagination info={pagination} basePath="/beneficiaries" params={active} noun="beneficiaries" />
       </div>
-      <BeneficiaryDrawer key={selected ?? "none"} detail={detail} canResolve={can(session.role, "exception.resolve")} />
+      <BeneficiaryDrawer
+        key={selected ?? "none"} detail={detail} canResolve={can(session.role, "exception.resolve")}
+        readiness={selected && readinessMap.get(selected) ? (({ category, ready, reasons, warnings }) => ({ ...category, ready, reasons, warnings }))(readinessMap.get(selected)!) : null}
+      />
     </>
   );
 }

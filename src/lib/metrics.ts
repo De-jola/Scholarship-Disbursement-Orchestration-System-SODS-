@@ -1,10 +1,12 @@
 import { db } from "@/lib/db";
 import { summarizeFund } from "@/lib/fund";
 import { humanize } from "@/lib/format";
+import { CURRENT_SESSION } from "@/lib/constants";
+import { WINDOW_LEAD_DAYS } from "@/lib/rules";
+import { getReadinessMap } from "@/lib/readiness";
 
-export const CURRENT_SESSION = "2025/2026";
-/** Payment windows open this many days before the registration start date. */
-export const WINDOW_LEAD_DAYS = 14;
+export { CURRENT_SESSION } from "@/lib/constants";
+export { WINDOW_LEAD_DAYS } from "@/lib/rules";
 
 export type AlertKind =
   | "MISSING_CALENDAR"
@@ -29,7 +31,7 @@ const STATUS_ORDER = [
 ] as const;
 
 export async function getDashboardData(now: Date) {
-  const [fund, beneficiaries, universities, batches, lowConf, failedItems, activity, paidItems] = await Promise.all([
+  const [fund, beneficiaries, universities, batches, lowConf, failedItems, activity, paidItems, readinessMap] = await Promise.all([
     db.fundAllocation.findFirst({ orderBy: { createdAt: "asc" } }),
     db.beneficiary.findMany({ select: { id: true, fullName: true, universityId: true, verificationStatus: true, exceptionType: true, exceptionResolvedAt: true, otherScholarshipDeclaration: true } }),
     db.university.findMany({ where: { status: "ACTIVE" }, include: { calendars: { include: { events: true } } }, orderBy: { name: "asc" } }),
@@ -41,6 +43,7 @@ export async function getDashboardData(now: Date) {
     db.paymentBatchItem.findMany({ where: { status: "FAILED" }, include: { beneficiary: true, batch: true } }),
     db.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     db.paymentBatchItem.findMany({ where: { status: "DISBURSEMENT_SIMULATED", paidAt: { not: null } } }),
+    getReadinessMap(now),
   ]);
 
   const f = fund ?? { totalAmount: 0, committedAmount: 0, disbursedAmount: 0 };
@@ -61,6 +64,7 @@ export async function getDashboardData(now: Date) {
     pendingVerifications: count("DOCUMENT_SUBMITTED") + count("EXTRACTED") + count("REVIEW_PENDING"),
     batchesAwaitingApproval: batches.filter((b) => b.status === "PENDING_APPROVAL").length,
     exceptions: beneficiaries.filter(activeException).length + failedItems.length,
+    paymentReady: [...readinessMap.values()].filter((r) => r.ready).length,
   };
 
   // ---- Alerts ----
@@ -113,12 +117,18 @@ export async function getDashboardData(now: Date) {
   // ---- Charts ----
   const statusBreakdown = STATUS_ORDER.map((s) => ({ status: s, label: humanize(s), count: count(s) }));
 
-  const readiness = universities.map((u) => ({
-    university: u.shortName,
-    verified: beneficiaries.filter((b) => b.universityId === u.id && b.verificationStatus === "VERIFIED").length,
-    pending: beneficiaries.filter((b) => b.universityId === u.id && !["VERIFIED", "EXCEPTION", "REJECTED"].includes(b.verificationStatus)).length,
-    blocked: beneficiaries.filter((b) => b.universityId === u.id && ["EXCEPTION", "REJECTED"].includes(b.verificationStatus)).length,
-  }));
+  const WAITING = new Set(["AWAITING_CALENDAR", "WINDOW_NOT_OPEN", "VERIFICATION_PENDING"]);
+  const SCHEDULED = new Set(["IN_BATCH"]);
+  const readiness = universities.map((u) => {
+    const mine = beneficiaries.filter((b) => b.universityId === u.id).map((b) => readinessMap.get(b.id)?.category.key);
+    return {
+      university: u.shortName,
+      ready: mine.filter((k) => k === "READY").length,
+      scheduled: mine.filter((k) => k && SCHEDULED.has(k)).length,
+      waiting: mine.filter((k) => k && WAITING.has(k)).length,
+      blocked: mine.filter((k) => k && !WAITING.has(k) && !SCHEDULED.has(k) && k !== "READY").length,
+    };
+  });
 
   const monthKey = (d: Date) => d.toISOString().slice(0, 7);
   const months = new Map<string, { month: string; disbursed: number; committed: number }>();

@@ -3,9 +3,10 @@ import path from "node:path";
 import type { PrismaClient } from "@prisma/client";
 import { parseUniversities, shortNameFor } from "./institutions";
 
-/** Fixed per-beneficiary instalment used throughout the demo (NGN). */
-export const STANDARD_AMOUNT = 150_000;
-export const SESSION = "2025/2026";
+import { CURRENT_SESSION, STANDARD_AMOUNT } from "../src/lib/constants";
+
+export { STANDARD_AMOUNT };
+export const SESSION = CURRENT_SESSION;
 
 const d = (s: string) => new Date(`${s}T09:00:00.000Z`);
 
@@ -333,8 +334,8 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
 
   const paid = await mkBatch("FUTMINNA", "Federal University of Technology, Minna - November 2025 cohort", "2025-11-14", "DISBURSEMENT_SIMULATED", [0, 1, 2], "SDOS-SIM-2025-0001", "2025-11-12");
   const approved = await mkBatch("ABU", "Ahmadu Bello University, Zaria - October 2025 cohort", "2025-10-10", "APPROVED", [0, 1, 2, 3], "SDOS-SIM-2025-0002", "2025-10-08");
-  const pending = await mkBatch("DELSU", "Delta State University, Abraka - December 2025 cohort", "2025-12-05", "PENDING_APPROVAL", [0, 1, 2, 3, 4], null);
-  const draft = await mkBatch("RSU", "Rivers State University - January 2026 cohort", "2026-01-14", "DRAFT", [0, 1, 2, 3], null);
+  const pending = await mkBatch("DELSU", "Delta State University, Abraka - December 2025 cohort", "2025-12-05", "PENDING_APPROVAL", [0, 1, 2, 3], null);
+  const draft = await mkBatch("RSU", "Rivers State University - January 2026 cohort", "2026-01-14", "DRAFT", [0, 1, 2], null);
 
   const committed = approved.totalAmount;
   const disbursed = paid.totalAmount;
@@ -361,9 +362,9 @@ export async function runSeed(prisma: PrismaClient): Promise<void> {
   await audit(-61, F, "BATCH_APPROVED", "PaymentBatch", "Approved batch SDOS-SIM-2025-0001 (NGN 450,000)", { universityId: uniIds.FUTMINNA, paymentBatchId: paid.id });
   await audit(-59, F, "DISBURSEMENT_SIMULATED", "PaymentBatch", "Simulated disbursement complete for 3 beneficiaries", { universityId: uniIds.FUTMINNA, paymentBatchId: paid.id });
   await audit(-49, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Delta State University, Abraka", { universityId: uniIds.DELSU });
-  await audit(-38, A, "BATCH_CREATED", "PaymentBatch", "Created batch for Delta State University, Abraka (5 beneficiaries); submitted for finance approval", { universityId: uniIds.DELSU, paymentBatchId: pending.id });
+  await audit(-38, A, "BATCH_CREATED", "PaymentBatch", "Created batch for Delta State University, Abraka (4 beneficiaries); submitted for finance approval", { universityId: uniIds.DELSU, paymentBatchId: pending.id });
   await audit(-25, A, "CALENDAR_APPROVED", "AcademicCalendar", "Approved 2025/2026 calendar for Rivers State University", { universityId: uniIds.RSU });
   await audit(-12, A, "CALENDAR_UPLOADED", "AcademicCalendar", "Uploaded unijos-calendar-draft.csv (illustrative) (3 events, low confidence); awaiting review", { universityId: uniIds.UNIJOS });
   await audit(-7, A, "EXCEPTION_RAISED", "Beneficiary", "Duplicate scholarship declared; beneficiary excluded from batching", { universityId: uniIds.RSU, beneficiaryId: ben.RSU[4].id });
-  await audit(-3, A, "BATCH_CREATED", "PaymentBatch", "Created draft batch for Rivers State University (4 beneficiaries)", { universityId: uniIds.RSU, paymentBatchId: draft.id });
+  await audit(-3, A, "BATCH_CREATED", "PaymentBatch", "Created draft batch for Rivers State University (3 beneficiaries)", { universityId: uniIds.RSU, paymentBatchId: draft.id });
 }

@@ -8,10 +8,13 @@ export interface BeneficiaryFilters {
   session?: string;
   exceptionType?: string;
   q?: string;
+  /** Restrict to these beneficiary ids (used for readiness filtering). */
+  ids?: string[];
 }
 
 function buildWhere(f: BeneficiaryFilters): Prisma.BeneficiaryWhereInput {
   const where: Prisma.BeneficiaryWhereInput = {};
+  if (f.ids) where.id = { in: f.ids };
   if (f.universityId) where.universityId = f.universityId;
   if (f.status) where.verificationStatus = f.status as never;
   if (f.session) where.academicSession = f.session;

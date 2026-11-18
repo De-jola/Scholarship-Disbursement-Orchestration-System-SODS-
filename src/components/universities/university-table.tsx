@@ -40,7 +40,7 @@ export function UniversityTable({ rows, canManage }: { rows: UniversityRow[]; ca
               <tr>
                 <th scope="col">University</th><th scope="col">State</th><th scope="col">Calendar status</th>
                 <th scope="col">Session</th><th scope="col" className="text-right">Beneficiaries</th>
-                <th scope="col" className="text-right">Verified</th><th scope="col">Payment window opens</th>
+                <th scope="col" className="text-right">Payment-ready</th><th scope="col">Payment window opens</th>
                 <th scope="col"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -54,7 +54,7 @@ export function UniversityTable({ rows, canManage }: { rows: UniversityRow[]; ca
                     <td><Badge tone={s.tone}>{s.label}</Badge></td>
                     <td>{u.currentSession}</td>
                     <td className="text-right tabular-nums">{u.beneficiaryCount}</td>
-                    <td className="text-right tabular-nums">{u.verifiedCount}</td>
+                    <td className="text-right tabular-nums">{u.readyCount}<span className="block text-xs text-slate-400">{u.verifiedCount} verified</span></td>
                     <td>{u.nextPaymentWindow ? formatDate(u.nextPaymentWindow) : <span className="text-slate-400">Awaiting calendar approval</span>}</td>
                     <td>
                       <div className="flex justify-end gap-1.5">

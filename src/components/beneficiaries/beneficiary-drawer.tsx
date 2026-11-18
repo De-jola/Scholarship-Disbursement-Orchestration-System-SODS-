@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type Tone } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { useAction } from "@/components/ui/use-action";
 import { declareDuplicateAction, resolveExceptionAction } from "@/app/actions/beneficiaries";
@@ -25,7 +25,9 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <div><dt className="text-xs text-slate-500">{k}</dt><dd className="text-sm text-slate-800">{v}</dd></div>;
 }
 
-export function BeneficiaryDrawer({ detail, canResolve }: { detail: BeneficiaryDetail | null; canResolve: boolean }) {
+export interface DrawerReadiness { key: string; label: string; tone: Tone; ready: boolean; reasons: { code: string; message: string }[]; warnings: { code: string; message: string }[] }
+
+export function BeneficiaryDrawer({ detail, canResolve, readiness }: { detail: BeneficiaryDetail | null; canResolve: boolean; readiness: DrawerReadiness | null }) {
   const router = useRouter();
   const params = useSearchParams();
   const { run, pending } = useAction();
@@ -59,6 +61,20 @@ export function BeneficiaryDrawer({ detail, canResolve }: { detail: BeneficiaryD
             <Row k="Verification" v={<StatusBadge kind="verification" value={detail.verificationStatus} />} />
           </dl>
         </Section>
+
+        {readiness && (
+          <Section title="Payment readiness">
+            <Badge tone={readiness.tone}>{readiness.label}</Badge>
+            {readiness.ready ? (
+              <p className="mt-2 text-sm text-slate-700">All six payment-ready rules are met: approved calendar, open payment window, verified, no open exception, bank token on file and funds available.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5" aria-label="Reasons this beneficiary is not payment-ready">
+                {readiness.reasons.map((r) => <li key={r.code} className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">{r.message}</li>)}
+              </ul>
+            )}
+            {readiness.warnings.map((w) => <p key={w.code} className="mt-2 rounded bg-amber-50 px-3 py-2 text-sm text-amber-900">{w.message}</p>)}
+          </Section>
+        )}
 
         <Section title="University and academic calendar">
           {detail.calendar ? (

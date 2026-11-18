@@ -10,3 +10,6 @@ prisma/dev.db-journal
 .DS_Store
 prisma/test-seed.db*
 .next-dev
+prisma/*.db
+prisma/*.db-journal
+prisma/prisma/
