@@ -1,0 +1,166 @@
+/**
+ * Simulated calendar ingestion. Nothing here scrapes a website or calls an external service:
+ * CSV and JSON are parsed locally; PDF "extraction" returns a deterministic template with
+ * deliberately imperfect confidence scores so that human review is always required.
+ */
+
+export const EVENT_TYPES = ["RESUMPTION", "REGISTRATION", "LECTURES", "EXAMINATION", "BREAK", "SESSION_END"] as const;
+export type EventType = (typeof EVENT_TYPES)[number];
+export type SourceType = "MANUAL_ENTRY" | "CSV_UPLOAD" | "SIMULATED_PORTAL";
+
+export interface ParsedEvent {
+  eventType: EventType;
+  title: string;
+  startDate: Date;
+  endDate: Date;
+  confidence: number;
+  sourceText: string;
+}
+
+export interface ParseResult {
+  events: ParsedEvent[];
+  errors: string[];
+  sourceType: SourceType;
+}
+
+const KEYWORDS: [RegExp, EventType][] = [
+  [/regist/i, "REGISTRATION"],
+  [/resum/i, "RESUMPTION"],
+  [/exam/i, "EXAMINATION"],
+  [/lectur|teaching|semester begins/i, "LECTURES"],
+  [/break|vacation|recess|holiday/i, "BREAK"],
+  [/end of session|session end|close of session|convocation/i, "SESSION_END"],
+];
+
+function inferType(title: string): EventType | null {
+  return KEYWORDS.find(([re]) => re.test(title))?.[1] ?? null;
+}
+
+function parseDate(raw: string): Date | null {
+  const s = raw.trim();
+  let y: number, m: number, d: number;
+  let match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (match) [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  else if ((match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s))) [d, m, y] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  else return null;
+  const date = new Date(Date.UTC(y, m - 1, d, 9));
+  return date.getUTCMonth() === m - 1 && date.getUTCDate() === d ? date : null;
+}
+
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (const ch of line) {
+    if (ch === '"') quoted = !quoted;
+    else if (ch === "," && !quoted) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out.map((c) => c.trim());
+}
+
+interface RawRow {
+  eventType?: string;
+  title?: string;
+  startDate?: string;
+  endDate?: string;
+  sourceText?: string;
+}
+
+function toEvent(row: RawRow, label: string): { event?: ParsedEvent; error?: string } {
+  const title = (row.title ?? "").trim();
+  if (!title) return { error: `${label}: title is required.` };
+  const start = parseDate(row.startDate ?? "");
+  const end = parseDate(row.endDate ?? "");
+  if (!start || !end) return { error: `${label}: startDate and endDate must be YYYY-MM-DD or DD/MM/YYYY.` };
+  if (end < start) return { error: `${label}: endDate is before startDate.` };
+
+  const declared = (row.eventType ?? "").trim().toUpperCase() as EventType;
+  let eventType: EventType;
+  let confidence = 0.95;
+  if ((EVENT_TYPES as readonly string[]).includes(declared)) {
+    eventType = declared;
+  } else {
+    const inferred = inferType(title);
+    if (!inferred) return { error: `${label}: event type could not be determined from "${title}".` };
+    eventType = inferred;
+    confidence = 0.7; // inferred, so flag for reviewer attention
+  }
+  return {
+    event: { eventType, title, startDate: start, endDate: end, confidence, sourceText: (row.sourceText ?? "").trim() || title },
+  };
+}
+
+function parseCsv(content: string): { events: ParsedEvent[]; errors: string[] } {
+  const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return { events: [], errors: ["The file is empty."] };
+  const header = splitCsvLine(lines[0]);
+  const missing = ["eventType", "title", "startDate", "endDate"].filter((c) => !header.includes(c));
+  if (missing.length) return { events: [], errors: [`Missing required column(s): ${missing.join(", ")}.`] };
+
+  const events: ParsedEvent[] = [];
+  const errors: string[] = [];
+  lines.slice(1).forEach((line, i) => {
+    const cells = splitCsvLine(line);
+    const row: RawRow = {};
+    header.forEach((h, idx) => {
+      (row as Record<string, string>)[h] = cells[idx] ?? "";
+    });
+    const r = toEvent(row, `Row ${i + 2}`);
+    if (r.event) events.push(r.event);
+    else if (r.error) errors.push(r.error);
+  });
+  return { events, errors };
+}
+
+function parseJson(content: string): { events: ParsedEvent[]; errors: string[] } {
+  let data: unknown;
+  try {
+    data = JSON.parse(content);
+  } catch {
+    return { events: [], errors: ["The file is not valid JSON."] };
+  }
+  const rows = Array.isArray(data) ? data : (data as { events?: unknown })?.events;
+  if (!Array.isArray(rows)) return { events: [], errors: ["JSON must be an array of events or an object with an events array."] };
+  const events: ParsedEvent[] = [];
+  const errors: string[] = [];
+  rows.forEach((row, i) => {
+    const r = toEvent(row as RawRow, `Event ${i + 1}`);
+    if (r.event) events.push(r.event);
+    else if (r.error) errors.push(r.error);
+  });
+  return { events, errors };
+}
+
+/** Deterministic stand-in for OCR + LLM extraction of a PDF calendar. */
+export function simulatePdfExtraction(session: string): ParsedEvent[] {
+  const startYear = Number(session.slice(0, 4)) || 2025;
+  const d = (y: number, m: number, day: number) => new Date(Date.UTC(y, m - 1, day, 9));
+  const rows: [EventType, string, Date, Date, number, string][] = [
+    ["RESUMPTION", "Resumption of returning students", d(startYear, 10, 20), d(startYear, 10, 24), 0.91, "Returning students resume Monday 20 October"],
+    ["REGISTRATION", "Course registration", d(startYear, 11, 3), d(startYear, 11, 21), 0.88, "Registration: 3rd - 21st November"],
+    ["LECTURES", "First-semester lectures", d(startYear, 11, 10), d(startYear + 1, 3, 6), 0.84, "Lectures commence 10 Nov. (end date illegible)"],
+    ["EXAMINATION", "First-semester examinations", d(startYear + 1, 3, 16), d(startYear + 1, 4, 10), 0.74, "Exams 16 Mar - 10 Apr (scan quality low)"],
+    ["SESSION_END", "End of session", d(startYear + 1, 9, 30), d(startYear + 1, 9, 30), 0.66, "Session closes (date partially obscured)"],
+  ];
+  return rows.map(([eventType, title, startDate, endDate, confidence, sourceText]) => ({ eventType, title, startDate, endDate, confidence, sourceText }));
+}
+
+export function parseCalendarFile(fileName: string, content: string, session: string): ParseResult {
+  const ext = fileName.toLowerCase().split(".").pop() ?? "";
+  if (ext === "csv") return { ...parseCsv(content), sourceType: "CSV_UPLOAD" };
+  if (ext === "json") return { ...parseJson(content), sourceType: "CSV_UPLOAD" };
+  if (ext === "pdf") return { events: simulatePdfExtraction(session), errors: [], sourceType: "SIMULATED_PORTAL" };
+  return { events: [], errors: [`Unsupported file type ".${ext}". Upload a CSV, JSON or PDF file.`], sourceType: "CSV_UPLOAD" };
+}
+
+export function validateForApproval(events: { eventType: string; startDate: Date; endDate: Date }[]): string | null {
+  if (events.length === 0) return "The calendar must contain at least one event before it can be approved.";
+  if (!events.some((e) => e.eventType === "REGISTRATION")) {
+    return "The calendar must include a registration event; payment windows are derived from it.";
+  }
+  return null;
+}
