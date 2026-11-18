@@ -219,6 +219,8 @@ model ResultSubmission {
   status               SubmissionStatus @default(UPLOADED)
   extractionConfidence Float?
   extractedJson        String?
+  /** Text read from the uploaded file. null = simulated demo sample; empty = file had no text layer. */
+  rawText              String?
   reviewerId           String?
   reviewedAt           DateTime?
   reviewerNotes        String?

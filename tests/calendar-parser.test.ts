@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   parseCalendarFile,
-  simulatePdfExtraction,
   validateForApproval,
 } from "@/lib/calendar-parser";
 
@@ -57,15 +56,6 @@ describe("calendar parsing", () => {
     expect(parseCalendarFile("c.json", JSON.stringify(body), "2025/2026").events).toHaveLength(1);
     expect(parseCalendarFile("c.json", JSON.stringify({ events: body }), "2025/2026").events).toHaveLength(1);
     expect(parseCalendarFile("c.json", "{broken", "2025/2026").errors[0]).toMatch(/JSON/);
-  });
-
-  it("simulates PDF extraction with deliberately imperfect confidence and never reads the file", () => {
-    const r = parseCalendarFile("senate-calendar.pdf", "%PDF-binary-ignored", "2025/2026");
-    expect(r.sourceType).toBe("SIMULATED_PORTAL");
-    expect(r.events.length).toBeGreaterThanOrEqual(4);
-    expect(r.events.some((e) => e.eventType === "REGISTRATION")).toBe(true);
-    expect(r.events.some((e) => e.confidence < 0.8)).toBe(true);
-    expect(simulatePdfExtraction("2025/2026")).toEqual(simulatePdfExtraction("2025/2026"));
   });
 
   it("rejects unsupported file types", () => {

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { LOW_CONFIDENCE, simulateExtraction, validateExtraction, type FieldInput, type PersonRecord } from "@/lib/extraction";
+import { extractResultFields, hasUsableText } from "@/lib/result-text";
 import type { Session } from "@/lib/session";
 
 type Actor = Pick<Session, "userId" | "name" | "role">;
@@ -17,7 +18,7 @@ function person(b: { fullName: string; matricNumber: string; department: string;
 }
 
 /** Beneficiary (or administrator on their behalf) submits a result document, e.g. when the university portal is late. */
-export async function submitResultDocument(actor: Actor, beneficiaryId: string, documentName: string, documentType: DocType) {
+export async function submitResultDocument(actor: Actor, beneficiaryId: string, documentName: string, documentType: DocType, opts: { rawText?: string | null } = {}) {
   const b = await db.beneficiary.findUniqueOrThrow({ where: { id: beneficiaryId } });
   const resubmission = b.verificationStatus === "EXCEPTION" && b.exceptionType === "UNREADABLE_DOCUMENT";
   if (!["NOT_STARTED", "AWAITING_RESULT"].includes(b.verificationStatus) && !resubmission) {
@@ -27,7 +28,7 @@ export async function submitResultDocument(actor: Actor, beneficiaryId: string, 
   if (!name) throw new Error("Enter a document name.");
 
   const sub = await db.resultSubmission.create({
-    data: { beneficiaryId, documentName: name, documentType, fileUrl: `/simulated-uploads/${b.applicationRef}-${name}`, status: "UPLOADED" },
+    data: { beneficiaryId, documentName: name, documentType, fileUrl: `/simulated-uploads/${b.applicationRef}-${name}`, status: "UPLOADED", rawText: opts.rawText ?? null },
   });
   await db.beneficiary.update({
     where: { id: beneficiaryId },
@@ -45,7 +46,12 @@ export async function runExtraction(actor: Actor, submissionId: string) {
   if (sub.status !== "UPLOADED") throw new Error("Extraction has already been run for this document.");
   const b = sub.beneficiary;
   const p = person(b);
-  const result = simulateExtraction({ documentType: sub.documentType, documentName: sub.documentName, person: p });
+  // Uploaded files are read for their own text; a null rawText means a simulated demo sample.
+  const result = sub.rawText === null
+    ? simulateExtraction({ documentType: sub.documentType, documentName: sub.documentName, person: p })
+    : hasUsableText(sub.rawText)
+      ? extractResultFields(sub.rawText, sub.documentType)
+      : { fields: [], confidence: 0.1, unreadable: true };
 
   if (result.unreadable) {
     await db.$transaction([

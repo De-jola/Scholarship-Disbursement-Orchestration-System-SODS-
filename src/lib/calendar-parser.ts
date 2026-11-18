@@ -1,7 +1,6 @@
 /**
- * Simulated calendar ingestion. Nothing here scrapes a website or calls an external service:
- * CSV and JSON are parsed locally; PDF "extraction" returns a deterministic template with
- * deliberately imperfect confidence scores so that human review is always required.
+ * Local calendar ingestion for structured files (CSV, JSON). Nothing here scrapes a website or calls an external service.
+ * PDF and text files are read by calendar-extract.ts, which reads their actual content.
  */
 
 export const EVENT_TYPES = ["RESUMPTION", "REGISTRATION", "LECTURES", "EXAMINATION", "BREAK", "SESSION_END"] as const;
@@ -135,25 +134,10 @@ function parseJson(content: string): { events: ParsedEvent[]; errors: string[] }
   return { events, errors };
 }
 
-/** Deterministic stand-in for OCR + LLM extraction of a PDF calendar. */
-export function simulatePdfExtraction(session: string): ParsedEvent[] {
-  const startYear = Number(session.slice(0, 4)) || 2025;
-  const d = (y: number, m: number, day: number) => new Date(Date.UTC(y, m - 1, day, 9));
-  const rows: [EventType, string, Date, Date, number, string][] = [
-    ["RESUMPTION", "Resumption of returning students", d(startYear, 10, 20), d(startYear, 10, 24), 0.91, "Returning students resume Monday 20 October"],
-    ["REGISTRATION", "Course registration", d(startYear, 11, 3), d(startYear, 11, 21), 0.88, "Registration: 3rd - 21st November"],
-    ["LECTURES", "First-semester lectures", d(startYear, 11, 10), d(startYear + 1, 3, 6), 0.84, "Lectures commence 10 Nov. (end date illegible)"],
-    ["EXAMINATION", "First-semester examinations", d(startYear + 1, 3, 16), d(startYear + 1, 4, 10), 0.74, "Exams 16 Mar - 10 Apr (scan quality low)"],
-    ["SESSION_END", "End of session", d(startYear + 1, 9, 30), d(startYear + 1, 9, 30), 0.66, "Session closes (date partially obscured)"],
-  ];
-  return rows.map(([eventType, title, startDate, endDate, confidence, sourceText]) => ({ eventType, title, startDate, endDate, confidence, sourceText }));
-}
-
-export function parseCalendarFile(fileName: string, content: string, session: string): ParseResult {
+export function parseCalendarFile(fileName: string, content: string, _session: string): ParseResult {
   const ext = fileName.toLowerCase().split(".").pop() ?? "";
   if (ext === "csv") return { ...parseCsv(content), sourceType: "CSV_UPLOAD" };
   if (ext === "json") return { ...parseJson(content), sourceType: "CSV_UPLOAD" };
-  if (ext === "pdf") return { events: simulatePdfExtraction(session), errors: [], sourceType: "SIMULATED_PORTAL" };
   return { events: [], errors: [`Unsupported file type ".${ext}". Upload a CSV, JSON or PDF file.`], sourceType: "CSV_UPLOAD" };
 }
 

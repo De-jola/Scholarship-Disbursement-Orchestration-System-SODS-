@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireCan } from "@/lib/session";
-import { parseCalendarFile, EVENT_TYPES, type EventType } from "@/lib/calendar-parser";
+import { EVENT_TYPES, type EventType } from "@/lib/calendar-parser";
+import { extractCalendar } from "@/lib/calendar-extract";
 import {
   addManualEvent, approveCalendar, correctCalendarEvent, createCalendarFromUpload, rejectCalendar, removeCalendarEvent, submitForReview,
 } from "@/lib/calendar-service";
@@ -22,12 +23,11 @@ export async function uploadCalendarAction(formData: FormData): Promise<ActionRe
     const file = formData.get("file");
     if (!universityId) return { ok: false, message: "Select a university." };
     if (!/^\d{4}\/\d{4}$/.test(session)) return { ok: false, message: "Enter the academic session in the format 2025/2026." };
-    if (!(file instanceof File) || file.size === 0) return { ok: false, message: "Choose a CSV, JSON or PDF calendar file to upload." };
+    if (!(file instanceof File) || file.size === 0) return { ok: false, message: "Choose a CSV, JSON, PDF or TXT calendar file to upload." };
     if (file.size > MAX_BYTES) return { ok: false, message: "The file is larger than 1 MB. Upload a smaller calendar file." };
 
-    // PDF content is never parsed: the simulated extractor returns a template for human review.
-    const text = file.name.toLowerCase().endsWith(".pdf") ? "" : await file.text();
-    const parsed = parseCalendarFile(file.name, text, session);
+    // The file is read locally (PDF text layer, CSV, JSON or TXT). Nothing is sent to an external service.
+    const parsed = await extractCalendar(file.name, new Uint8Array(await file.arrayBuffer()), session);
     if (parsed.errors.length && parsed.events.length === 0) return { ok: false, message: parsed.errors.slice(0, 3).join(" ") };
 
     await createCalendarFromUpload(actor, { universityId, session, sourceType: parsed.sourceType, sourceName: file.name, events: parsed.events });

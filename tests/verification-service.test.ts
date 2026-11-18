@@ -131,3 +131,55 @@ describe("reviewer decisions", () => {
     await expect(approveVerification(admin, sub.id)).rejects.toThrow(/exception/i);
   });
 });
+
+describe("extraction from an uploaded file's own text", () => {
+  const statement = (p: { fullName: string; matricNumber: string; department: string; level: string }, cgpa: string, universityName: string) =>
+    [universityName.toUpperCase(), "STATEMENT OF RESULT", `Name: ${p.fullName}`, `Matric No: ${p.matricNumber}`, `Department: ${p.department}`,
+      `Level: ${p.level}`, "Session: 2024/2025", `CGPA: ${cgpa}`, "Academic Status: Good Standing", "Date of Result: 14 August 2025"].join("\n");
+
+  const awaitingIn = (short: string) => prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: "AWAITING_RESULT", university: { shortName: short } }, include: { university: true } });
+
+  it("reads the values in the document, stores the text, and is clean when everything matches", async () => {
+    const { submitResultDocument, runExtraction } = await import("@/lib/verification-service");
+    const b = await awaitingIn("BUK");
+    const text = statement(b, "3.91", b.university.name);
+    const sub = await submitResultDocument(admin, b.id, "my-result.pdf", "STATEMENT_OF_RESULT", { rawText: text });
+    expect(sub.rawText).toBe(text);
+    await runExtraction(admin, sub.id);
+    const after = await prisma.resultSubmission.findUniqueOrThrow({ where: { id: sub.id }, include: { fields: true } });
+    expect(after.fields.find((f) => f.fieldName === "cgpa")?.extractedValue).toBe("3.91");
+    expect(after.fields.find((f) => f.fieldName === "studentName")?.extractedValue).toBe(b.fullName);
+    expect(after.status).toBe("EXTRACTED");
+    expect(after.fields.every((f) => !f.warning)).toBe(true);
+  });
+
+  it("gives different results for a different document, and flags mismatches for review", async () => {
+    const { submitResultDocument, runExtraction } = await import("@/lib/verification-service");
+    const b = await awaitingIn("UNIJOS");
+    const text = statement({ ...b, fullName: `${b.fullName}x` }, "2.45", b.university.name);
+    const sub = await submitResultDocument(admin, b.id, "other.pdf", "TRANSCRIPT", { rawText: text });
+    await runExtraction(admin, sub.id);
+    const after = await prisma.resultSubmission.findUniqueOrThrow({ where: { id: sub.id }, include: { fields: true } });
+    expect(after.fields.find((f) => f.fieldName === "cgpa")?.extractedValue).toBe("2.45");
+    expect(after.fields.find((f) => f.fieldName === "studentName")?.warning).toMatch(/differs/);
+    expect(after.status).toBe("REVIEW_PENDING");
+  });
+
+  it("raises an unreadable-document exception when the file has no text layer", async () => {
+    const { submitResultDocument, runExtraction } = await import("@/lib/verification-service");
+    const b = await awaitingIn("UNJOS".replace("UNJOS", "UNIJOS")).catch(() => awaitingIn("UNILAG"));
+    const sub = await submitResultDocument(admin, b.id, "scan.pdf", "STATEMENT_OF_RESULT", { rawText: "" });
+    await runExtraction(admin, sub.id);
+    const after = await prisma.beneficiary.findUniqueOrThrow({ where: { id: b.id } });
+    expect(after.verificationStatus).toBe("EXCEPTION");
+    expect(after.exceptionType).toBe("UNREADABLE_DOCUMENT");
+    expect(await prisma.extractedField.count({ where: { resultSubmissionId: sub.id } })).toBe(0);
+  });
+
+  it("keeps the simulated demo sample working when no file text is supplied", async () => {
+    const { submitResultDocument } = await import("@/lib/verification-service");
+    const b = await prisma.beneficiary.findFirstOrThrow({ where: { verificationStatus: { in: ["AWAITING_RESULT", "NOT_STARTED"] } } });
+    const sub = await submitResultDocument(admin, b.id, "demo-sample.pdf", "STATEMENT_OF_RESULT");
+    expect(sub.rawText).toBeNull();
+  });
+});

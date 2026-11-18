@@ -22,7 +22,7 @@ export function UploadCalendarModal({ open, university, onClose }: Props) {
       open={open}
       onClose={onClose}
       title={`Upload calendar: ${university.name}`}
-      description="Upload a CSV, JSON or PDF. Events are extracted for your review; nothing is fetched from the university website."
+      description="Upload a CSV, JSON, text-based PDF or TXT file. Its content is read locally to extract events for your review. Nothing is fetched from the university website or sent to an external service."
     >
       <form
         id="upload-calendar"
@@ -36,9 +36,9 @@ export function UploadCalendarModal({ open, university, onClose }: Props) {
         </div>
         <div>
           <label htmlFor="upload-file" className="label">Calendar file</label>
-          <input id="upload-file" name="file" type="file" accept=".csv,.json,.pdf" className="field" required />
+          <input id="upload-file" name="file" type="file" accept=".csv,.json,.pdf,.txt" className="field" required />
           <p className="mt-1 text-xs text-slate-500">
-            CSV/JSON columns: eventType, title, startDate, endDate, sourceText (optional). PDF files use simulated extraction.
+            CSV/JSON columns: eventType, title, startDate, endDate, sourceText (optional). PDF/TXT: lines such as "Course registration: 9th - 27th November 2026" are recognised. Scanned image PDFs cannot be read because OCR is not enabled.
           </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">

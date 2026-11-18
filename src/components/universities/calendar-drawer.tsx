@@ -16,7 +16,7 @@ import type { CalendarView, UniversityRow } from "@/lib/universities";
 const SOURCE: Record<string, string> = {
   MANUAL_ENTRY: "Manual entry",
   CSV_UPLOAD: "CSV / JSON upload",
-  SIMULATED_PORTAL: "Simulated PDF / portal extraction",
+  SIMULATED_PORTAL: "PDF / text extraction (read locally)",
 };
 
 function ConfidenceBar({ value }: { value: number }) {

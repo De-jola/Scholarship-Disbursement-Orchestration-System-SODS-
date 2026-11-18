@@ -8,7 +8,7 @@ import { Badge, type Tone } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { useAction } from "@/components/ui/use-action";
 import { declareDuplicateAction, resolveExceptionAction } from "@/app/actions/beneficiaries";
-import { uploadResultDocumentAction, type UploadScenario } from "@/app/actions/verification";
+import { uploadResultDocumentAction, uploadResultFileAction, type UploadScenario } from "@/app/actions/verification";
 import { formatDate, formatDateTime, formatNaira, formatPercent, humanize } from "@/lib/format";
 import type { BeneficiaryDetail } from "@/lib/beneficiaries";
 
@@ -156,31 +156,45 @@ export function BeneficiaryDrawer({ detail, canResolve, readiness }: { detail: B
 
         {canResolve && (["NOT_STARTED", "AWAITING_RESULT"].includes(detail.verificationStatus) || (detail.verificationStatus === "EXCEPTION" && detail.exceptionType === "UNREADABLE_DOCUMENT")) && (
           <Section title="Late portal fallback: submit a prior result document">
-            <p className="mb-2 text-sm text-slate-600">
-              Use when the university portal has not published results. Upload is simulated: no file is stored, and AI-assisted extraction runs immediately. Human review is still required.
+            <p className="mb-3 text-sm text-slate-600">
+              Use when the university portal has not published results. The file is read locally for its own text (text-based PDF or TXT) and the values are extracted for review. Nothing is sent to an external service, and human approval is still required.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <form action={(fd) => run(() => uploadResultFileAction(fd))} className="grid gap-3 sm:grid-cols-2">
+              <input type="hidden" name="beneficiaryId" value={detail.id} />
               <div>
                 <label htmlFor="up-type" className="label">Document type</label>
-                <select id="up-type" className="field" value={docType} onChange={(e) => setDocType(e.target.value as typeof docType)}>
+                <select id="up-type" name="documentType" className="field" value={docType} onChange={(e) => setDocType(e.target.value as typeof docType)}>
                   <option value="STATEMENT_OF_RESULT">Statement of result</option>
                   <option value="TRANSCRIPT">Transcript</option>
                   <option value="COURSE_REGISTRATION_FORM">Course registration form</option>
                 </select>
               </div>
               <div>
-                <label htmlFor="up-scn" className="label">Simulated document quality</label>
-                <select id="up-scn" className="field" value={scenario} onChange={(e) => setScenario(e.target.value as UploadScenario)}>
-                  <option value="CLEAN">Clear scan</option>
-                  <option value="NAME_MISMATCH">Name differs from record</option>
-                  <option value="LOW_QUALITY">Low-quality scan</option>
-                  <option value="UNREADABLE">Unreadable image</option>
-                </select>
+                <label htmlFor="up-file" className="label">Result document</label>
+                <input id="up-file" name="file" type="file" accept=".pdf,.txt" className="field" required />
               </div>
-            </div>
-            <Button className="mt-3" disabled={pending} onClick={() => run(() => uploadResultDocumentAction(detail.id, docType, scenario))}>
-              {pending ? "Uploading and running AI-assisted extraction…" : "Upload and run AI-assisted extraction"}
-            </Button>
+              <div className="sm:col-span-2">
+                <Button type="submit" disabled={pending}>{pending ? "Reading the document and extracting fields…" : "Upload and extract fields"}</Button>
+              </div>
+            </form>
+            <details className="mt-4 rounded-md border border-slate-200 p-3">
+              <summary className="cursor-pointer text-sm font-medium text-slate-700">Or use a simulated demo sample (no file needed)</summary>
+              <p className="mt-2 text-xs text-slate-500">Generates a synthetic document from this beneficiary&apos;s record so the demo scenarios can be shown without preparing files.</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="up-scn" className="label">Simulated document quality</label>
+                  <select id="up-scn" className="field" value={scenario} onChange={(e) => setScenario(e.target.value as UploadScenario)}>
+                    <option value="CLEAN">Clear scan</option>
+                    <option value="NAME_MISMATCH">Name differs from record</option>
+                    <option value="LOW_QUALITY">Low-quality scan</option>
+                    <option value="UNREADABLE">Unreadable image</option>
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <Button variant="secondary" disabled={pending} onClick={() => run(() => uploadResultDocumentAction(detail.id, docType, scenario))}>Generate simulated sample</Button>
+                </div>
+              </div>
+            </details>
           </Section>
         )}
 

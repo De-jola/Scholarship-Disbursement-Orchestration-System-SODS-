@@ -6,6 +6,9 @@ import {
   approveVerification, confirmField, correctField, markException, rejectVerification,
   requestClearerCopy, runExtraction, submitResultDocument,
 } from "@/lib/verification-service";
+import { extractPdfText } from "@/lib/pdf-text";
+import { hasUsableText } from "@/lib/result-text";
+import { db } from "@/lib/db";
 import type { ActionResult } from "@/components/ui/use-action";
 
 type DocType = "STATEMENT_OF_RESULT" | "TRANSCRIPT" | "COURSE_REGISTRATION_FORM";
@@ -30,6 +33,38 @@ export async function uploadResultDocumentAction(beneficiaryId: string, document
     await runExtraction(actor, sub.id);
     refresh();
     return { ok: true, message: "Document uploaded and AI-assisted extraction complete. Human review required before the beneficiary can be verified." };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+const MAX_RESULT_BYTES = 5_000_000;
+const DOC_TYPES = ["STATEMENT_OF_RESULT", "TRANSCRIPT", "COURSE_REGISTRATION_FORM"] as const;
+
+/** Real upload: the file is read locally (PDF text layer or TXT) and its own content is extracted. Nothing is sent externally. */
+export async function uploadResultFileAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const actor = await requireCan("verification.review");
+    const beneficiaryId = String(formData.get("beneficiaryId") ?? "");
+    const documentType = String(formData.get("documentType") ?? "") as DocType;
+    const file = formData.get("file");
+    if (!beneficiaryId) return { ok: false, message: "Select a beneficiary." };
+    if (!(DOC_TYPES as readonly string[]).includes(documentType)) return { ok: false, message: "Select the document type." };
+    if (!(file instanceof File) || file.size === 0) return { ok: false, message: "Choose a result document to upload (text-based PDF or TXT)." };
+    if (file.size > MAX_RESULT_BYTES) return { ok: false, message: "The file is larger than 5 MB. Upload a smaller document." };
+    const ext = file.name.toLowerCase().split(".").pop() ?? "";
+    if (ext !== "pdf" && ext !== "txt") return { ok: false, message: "Upload a text-based PDF or TXT document. Images are not supported because OCR is not enabled in this demo." };
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const text = ext === "pdf" ? await extractPdfText(bytes) : new TextDecoder().decode(bytes);
+    const sub = await submitResultDocument(actor, beneficiaryId, file.name, documentType, { rawText: text });
+    await runExtraction(actor, sub.id);
+    refresh();
+    if (!hasUsableText(text)) {
+      return { ok: true, message: "The document could not be read: it has no text layer (it may be a scan or photo). An exception was raised and a clearer copy is required." };
+    }
+    const status = (await db.beneficiary.findUniqueOrThrow({ where: { id: beneficiaryId } })).verificationStatus;
+    return { ok: true, message: status === "REVIEW_PENDING" ? "Fields extracted from the document. Some values need attention: human review required." : "Fields extracted from the document. Human review is still required before verification." };
   } catch (e) {
     return fail(e);
   }

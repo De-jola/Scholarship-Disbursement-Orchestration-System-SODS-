@@ -5,6 +5,8 @@ import { Card, PageHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { DocumentPreview } from "@/components/verification/document-preview";
+import { DocumentText } from "@/components/verification/document-text";
+import { hasUsableText } from "@/lib/result-text";
 import { ReviewPanel } from "@/components/verification/review-panel";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/session";
@@ -36,8 +38,10 @@ export default async function ReviewPage({ params }: { params: { id: string } })
       ) : (
         <div className="grid gap-6 xl:grid-cols-2">
           <section aria-label="Uploaded document">
-            <h2 className="mb-2 text-sm font-semibold text-navy-900">Uploaded document (simulated preview)</h2>
-            {sub.status === "UPLOADED" || fields.length === 0 ? (
+            <h2 className="mb-2 text-sm font-semibold text-navy-900">Uploaded document</h2>
+            {sub.rawText && hasUsableText(sub.rawText) ? (
+              <DocumentText documentName={sub.documentName} text={sub.rawText} />
+            ) : sub.status === "UPLOADED" || fields.length === 0 ? (
               <Card><EmptyState icon={FileX} title={sub.status === "UPLOADED" ? "Preview available after extraction" : "Document could not be read"} description={sub.reviewerNotes ?? "Run AI-assisted extraction to populate the preview and the extracted fields."} /></Card>
             ) : (
               <DocumentPreview universityName={b.university.name} documentName={sub.documentName} documentType={sub.documentType} values={values} />

@@ -89,11 +89,11 @@ describe("calendar service", () => {
 describe("reviewer corrections to extracted calendar events", () => {
   async function pendingPdfCalendar(short: string) {
     const { createCalendarFromUpload } = await import("@/lib/calendar-service");
-    const { simulatePdfExtraction } = await import("@/lib/calendar-parser");
+    const { sampleCalendarEvents } = await import("./helpers/sample-calendar");
     const u = await uni(short);
     return createCalendarFromUpload(admin, {
       universityId: u.id, session: "2026/2027", sourceType: "SIMULATED_PORTAL", sourceName: `${short.toLowerCase()}-2026-27.pdf`,
-      events: simulatePdfExtraction("2026/2027"),
+      events: sampleCalendarEvents("2026/2027"),
     });
   }
   const eventOf = (calendarId: string, type: string) => prisma.calendarEvent.findFirstOrThrow({ where: { academicCalendarId: calendarId, eventType: type as never } });

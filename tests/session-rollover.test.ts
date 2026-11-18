@@ -15,9 +15,9 @@ afterAll(async () => prisma.$disconnect());
 
 async function uploadPdf(short: string, session: string) {
   const { createCalendarFromUpload } = await import("@/lib/calendar-service");
-  const { simulatePdfExtraction } = await import("@/lib/calendar-parser");
+  const { sampleCalendarEvents } = await import("./helpers/sample-calendar");
   const u = await prisma.university.findFirstOrThrow({ where: { shortName: short } });
-  return createCalendarFromUpload(admin, { universityId: u.id, session, sourceType: "SIMULATED_PORTAL", sourceName: `${short}.pdf`, events: simulatePdfExtraction(session) });
+  return createCalendarFromUpload(admin, { universityId: u.id, session, sourceType: "SIMULATED_PORTAL", sourceName: `${short}.pdf`, events: sampleCalendarEvents(session) });
 }
 
 async function overviewOf(short: string, now = JAN) {
